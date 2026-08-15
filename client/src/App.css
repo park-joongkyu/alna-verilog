@@ -15,8 +15,10 @@
 
 .login-screen {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 20px;
   height: 100vh;
   width: 100vw;
   background: #F8F9FB;
@@ -24,6 +26,14 @@
   font-family: -apple-system, "Segoe UI", sans-serif;
   line-height: 1.5;
   letter-spacing: 0.01em;
+}
+
+.login-tagline {
+  font-size: 22px;
+  font-weight: 500;
+  color: #A6ACB8;
+  letter-spacing: 0.02em;
+  text-align: center;
 }
 
 .login-card {

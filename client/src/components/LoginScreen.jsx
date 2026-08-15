@@ -54,6 +54,7 @@ export default function LoginScreen({ onAuthed }) {
 
   return (
     <div className="login-screen">
+      <div className="login-tagline">Assisted Logic Network Alliance</div>
       <form className="login-card" onSubmit={submit}>
         <h2>ALNA_Verilog</h2>
         <div className="login-tabs">
