@@ -45,6 +45,10 @@ cd client && npm install && npm run dev   # http://localhost:5173
 
 `server` 실행에는 [Icarus Verilog](http://iverilog.icarus.com/)가 시스템에 설치되어 있어야 합니다.
 
+### 향후 계획
+
+- **Verilator 지원 예정**: 대규모 설계의 시뮬레이션 속도를 높이기 위해, 현재 사용 중인 Icarus Verilog와 함께 [Verilator](https://github.com/verilator/verilator) 시뮬레이션 옵션을 추가할 계획입니다.
+
 ---
 
 ## English
@@ -87,3 +91,7 @@ cd client && npm install && npm run dev   # http://localhost:5173
 ```
 
 [Icarus Verilog](http://iverilog.icarus.com/) must be installed on the system for the server to run.
+
+### Roadmap
+
+- **Verilator support (planned)**: alongside the current Icarus Verilog backend, we plan to add [Verilator](https://github.com/verilator/verilator) as a simulation option for faster runs on larger designs.
