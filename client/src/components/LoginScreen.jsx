@@ -55,7 +55,7 @@ export default function LoginScreen({ onAuthed }) {
   return (
     <div className="login-screen">
       <form className="login-card" onSubmit={submit}>
-        <h2>Verilog 협업 사이트</h2>
+        <h2>ALNA_Verilog</h2>
         <div className="login-tabs">
           <button type="button" className={mode === "login" ? "active" : ""} onClick={() => switchMode("login")}>
             로그인
