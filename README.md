@@ -1,0 +1,40 @@
+# ALNA Verilog
+
+FPGA/RTL 팀 프로젝트를 위한 웹 기반 Verilog 협업 플랫폼입니다. 팀원마다 자기 소유의 git 브랜치에서 독립적으로 코드를 편집·시뮬레이션하고, LLM(ChatGPT/Claude)의 도움을 받아 코드를 수정한 뒤, 웹에서 바로 main 브랜치로 병합할 수 있습니다.
+
+실제로 팀 프로젝트에서 사용 중인 서비스입니다: https://verilogserver.duckdns.org
+
+## 주요 기능
+
+- **프로젝트 단위 팀 관리**: 프로젝트를 만들고 팀원을 초대. 프로젝트마다 브랜치·파일·히스토리가 완전히 독립적으로 관리됨
+- **브랜치 소유권 모델**: 브랜치를 만든 사람이 자동으로 소유자가 되고, 소유자만(또는 초대된 협업자만) 해당 브랜치를 편집 가능. 다른 사람 브랜치는 읽기 전용으로 열람만 가능
+- **브라우저 내 Verilog 편집 & 시뮬레이션**: Monaco 에디터로 코드 편집, Icarus Verilog(iverilog/vvp)로 서버에서 바로 시뮬레이션 실행 → PASS/FAIL 결과 확인
+- **버전 히스토리 & 되돌리기**: 저장할 때마다 자동 커밋, 파일/기간별 필터링, 특정 시점으로 되돌리기
+- **LLM 연동 워크플로우**: 관련 코드/에러 로그를 자동으로 정리한 프롬프트를 생성 → ChatGPT/Claude 같은 외부 LLM에 붙여넣어 답변을 받고, 그 결과를 다시 파일에 적용(API 비용 없이 무료로 사용 가능한 구조)
+- **웹 기반 Merge 충돌 해결**: 브랜치를 main에 병합할 때 충돌이 나면, 충돌 마커가 있는 코드를 웹에서 직접 편집해 해결. main(ours)/내 브랜치(theirs)/공통 조상 버전을 비교하며 작업 가능
+- **관리자 패널**: 사용자 관리, 비밀번호 재설정, 피드백/버그 제보 확인, 로그인 접속 기록 조회
+
+## 기술 스택
+
+- **Frontend**: React, Vite, Monaco Editor
+- **Backend**: Node.js, Express (ES modules)
+- **버전 관리**: `simple-git` 기반 — 프로젝트별로 git 저장소를 만들고, 브랜치마다 git worktree를 생성해 완전히 격리된 작업 공간을 제공
+- **시뮬레이션**: Icarus Verilog (오픈소스, 무료)
+- **인증**: JWT + bcrypt
+- **배포**: Oracle Cloud (ARM VPS), nginx 리버스 프록시, systemd 서비스, Let's Encrypt HTTPS
+
+## 프로젝트 구조
+
+```
+client/   React + Vite 프론트엔드
+server/   Express 백엔드 (REST API, git 연동, 시뮬레이션 실행)
+```
+
+## 로컬 실행
+
+```bash
+cd server && npm install && npm run dev   # http://localhost:4000
+cd client && npm install && npm run dev   # http://localhost:5173
+```
+
+`server` 실행에는 [Icarus Verilog](http://iverilog.icarus.com/)가 시스템에 설치되어 있어야 합니다.

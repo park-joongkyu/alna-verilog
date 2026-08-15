@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.vvp
+*.log
+.env*
+server/projects/
+server/data/
+.migration-backup*
+.claude/settings.local.json
