@@ -15,8 +15,14 @@ import {
   saveFile,
   createFile,
   deleteFile,
+  renameFile,
+  listArchivedFiles,
+  archiveFile,
+  unarchiveFile,
+  exportBranch,
   runSimulation,
   listHistory,
+  listSimRuns,
   revertToCommit,
   listBranches,
   createBranch,
@@ -49,18 +55,18 @@ export default function Workspace({
   onLogout,
 }) {
   const [files, setFiles] = useState([]);
+  const [archivedFiles, setArchivedFiles] = useState([]);
   const [activeName, setActiveName] = useState(null);
   const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
-  const [sidebarTab, setSidebarTab] = useState("files");
   const [history, setHistory] = useState([]);
   const [historyFilter, setHistoryFilter] = useState({ since: "", until: "", file: "" });
+  const [simRuns, setSimRuns] = useState([]);
   const [branches, setBranches] = useState([]);
   const [currentBranch, setCurrentBranch] = useState(MAIN_BRANCH);
-  const [selectedTestbench, setSelectedTestbench] = useState(null);
   const [mergeConflict, setMergeConflict] = useState(null);
   const [projectMembers, setProjectMembers] = useState([]);
   const [showMembers, setShowMembers] = useState(false);
@@ -125,14 +131,10 @@ export default function Workspace({
   const canEdit = isOwner && !isMain;
   const canSimulate = isMain || isOwner;
   const canRevert = isMain ? isAdmin : isOwner;
-  const effectiveSidebarTab =
-    isNarrow && (mobileView === "files" || mobileView === "history") ? mobileView : sidebarTab;
+  const mobileSidebarTab = mobileView === "history" ? "history" : "files";
   const effectiveLlmCollapsed = llmCollapsed && !isNarrow;
 
-  const testbenchFiles = files.filter((f) => f.kind === "testbench");
-  const effectiveTestbench = testbenchFiles.some((f) => f.name === selectedTestbench)
-    ? selectedTestbench
-    : testbenchFiles[0]?.name ?? null;
+  const activeKind = files.find((f) => f.name === activeName)?.kind ?? null;
 
   const refreshBranches = useCallback(async () => {
     const list = await listBranches(currentProject);
@@ -144,6 +146,15 @@ export default function Workspace({
     async (branch) => {
       const list = await listFiles(currentProject, branch ?? currentBranch);
       setFiles(list);
+      return list;
+    },
+    [currentProject, currentBranch]
+  );
+
+  const refreshArchivedFiles = useCallback(
+    async (branch) => {
+      const list = await listArchivedFiles(currentProject, branch ?? currentBranch);
+      setArchivedFiles(list);
       return list;
     },
     [currentProject, currentBranch]
@@ -163,6 +174,15 @@ export default function Workspace({
     [currentProject, historyFilter, currentBranch]
   );
 
+  const refreshSimRuns = useCallback(
+    async (branch) => {
+      const runs = await listSimRuns(currentProject, branch ?? currentBranch);
+      setSimRuns(runs);
+      return runs;
+    },
+    [currentProject, currentBranch]
+  );
+
   const openFile = async (name, branch) => {
     const data = await getFile(currentProject, name, branch ?? currentBranch);
     setActiveName(data.name);
@@ -175,7 +195,9 @@ export default function Workspace({
     refreshFiles(MAIN_BRANCH).then((list) => {
       if (list.length > 0) openFile(list[0].name, MAIN_BRANCH);
     });
+    refreshArchivedFiles(MAIN_BRANCH);
     refreshHistory(undefined, MAIN_BRANCH);
+    refreshSimRuns(MAIN_BRANCH);
     mergeStatus(currentProject, MAIN_BRANCH).then((s) => {
       if (s.inProgress) setMergeConflict({ source: "(진행 중이던 병합)", target: MAIN_BRANCH, files: s.files });
     });
@@ -187,7 +209,9 @@ export default function Workspace({
     setCurrentBranch(branch);
     setResult(null);
     const list = await refreshFiles(branch);
+    refreshArchivedFiles(branch);
     await refreshHistory(historyFilter, branch);
+    refreshSimRuns(branch);
     if (list.length > 0) {
       openFile(list[0].name, branch);
     } else {
@@ -391,6 +415,51 @@ export default function Workspace({
     }
   };
 
+  const handleRename = async (oldName, newName) => {
+    if (!canEdit) return;
+    const finalNewName = newName.endsWith(".v") ? newName : `${newName}.v`;
+    try {
+      await renameFile(currentProject, oldName, finalNewName, currentBranch);
+      await refreshFiles();
+      await refreshHistory();
+      if (activeName === oldName) openFile(finalNewName);
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "이름 변경 실패");
+    }
+  };
+
+  const handleArchive = async (name) => {
+    if (!canEdit) return;
+    if (!window.confirm(`${name} 파일을 보관할까요? 파일 목록/시뮬레이션/내보내기에서 제외되고, 나중에 복원할 수 있습니다.`)) return;
+    try {
+      await archiveFile(currentProject, name, currentBranch);
+      const list = await refreshFiles();
+      await refreshArchivedFiles();
+      await refreshHistory();
+      if (activeName === name) {
+        if (list.length > 0) openFile(list[0].name);
+        else {
+          setActiveName(null);
+          setContent("");
+        }
+      }
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "보관 실패");
+    }
+  };
+
+  const handleUnarchive = async (name) => {
+    if (!canEdit) return;
+    try {
+      await unarchiveFile(currentProject, name, currentBranch);
+      await refreshFiles();
+      await refreshArchivedFiles();
+      await refreshHistory();
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "보관 해제 실패");
+    }
+  };
+
   const handleApplyFromLLM = async (name, content, summary) => {
     if (!canEdit) return;
     const exists = files.some((f) => f.name === name);
@@ -405,16 +474,56 @@ export default function Workspace({
     await openFile(name);
   };
 
-  const handleRun = async () => {
-    if (!canSimulate || !effectiveTestbench) return;
+  const handleExport = async () => {
+    try {
+      const blob = await exportBranch(currentProject, currentBranch);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${currentProject}-${currentBranch}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "내보내기 실패");
+    }
+  };
+
+  const handleRun = async (tbName) => {
+    if (!canSimulate || !tbName) return;
+    // Save unconditionally, not just when tbName === activeName: the open
+    // file might be an RTL dependency that gets compiled alongside whichever
+    // testbench is being run, so stale on-disk content would be picked up.
     if (dirty) await doSave(content);
     setRunning(true);
     setResult(null);
     try {
       const rtlNames = files.filter((f) => f.kind !== "testbench").map((f) => f.name);
-      const data = await runSimulation(currentProject, currentBranch, [effectiveTestbench, ...rtlNames]);
+      const data = await runSimulation(currentProject, currentBranch, [tbName, ...rtlNames]);
       setResult(data);
       refreshHistory();
+      refreshSimRuns();
+    } catch (e) {
+      setResult({
+        status: "compile_error",
+        compileLog: e?.response?.data?.error ?? e.message,
+        runLog: "",
+      });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleCheckCompile = async (name) => {
+    if (!canSimulate) return;
+    if (dirty) await doSave(content);
+    setRunning(true);
+    setResult(null);
+    try {
+      const otherRtlNames = files.filter((f) => f.kind !== "testbench" && f.name !== name).map((f) => f.name);
+      const data = await runSimulation(currentProject, currentBranch, [name, ...otherRtlNames], { compileOnly: true });
+      setResult(data);
     } catch (e) {
       setResult({
         status: "compile_error",
@@ -514,6 +623,36 @@ export default function Workspace({
       openFile(list[0].name);
     }
   };
+
+  const fileListPanel = (
+    <FileList
+      files={files}
+      activeName={activeName}
+      onSelect={handleSelect}
+      onCreate={canEdit ? handleCreate : null}
+      onUpload={canEdit ? handleUploadFile : null}
+      onDelete={canEdit ? handleDelete : null}
+      onRename={canEdit ? handleRename : null}
+      onExport={handleExport}
+      onRunTestbench={canSimulate ? handleRun : null}
+      onCheckCompile={canSimulate ? handleCheckCompile : null}
+      running={running}
+      archivedFiles={archivedFiles}
+      onArchive={canEdit ? handleArchive : null}
+      onUnarchive={canEdit ? handleUnarchive : null}
+    />
+  );
+
+  const historyPanel = (
+    <HistoryPanel
+      entries={history}
+      files={files}
+      onRevert={canRevert ? handleRevert : null}
+      filter={historyFilter}
+      onFilterChange={handleHistoryFilterChange}
+      simRuns={simRuns}
+    />
+  );
 
   return (
     <div className="app">
@@ -628,37 +767,13 @@ export default function Workspace({
       </aside>
 
       <aside className={`sidebar ${mobileView === "files" || mobileView === "history" ? "mobile-active" : ""}`}>
-        <div className="sidebar-tabs">
-          <button
-            className={sidebarTab === "files" ? "active" : ""}
-            onClick={() => setSidebarTab("files")}
-          >
-            파일
-          </button>
-          <button
-            className={sidebarTab === "history" ? "active" : ""}
-            onClick={() => setSidebarTab("history")}
-          >
-            히스토리
-          </button>
-        </div>
-        {effectiveSidebarTab === "files" ? (
-          <FileList
-            files={files}
-            activeName={activeName}
-            onSelect={handleSelect}
-            onCreate={canEdit ? handleCreate : null}
-            onUpload={canEdit ? handleUploadFile : null}
-            onDelete={canEdit ? handleDelete : null}
-          />
+        {isNarrow ? (
+          mobileSidebarTab === "files" ? fileListPanel : historyPanel
         ) : (
-          <HistoryPanel
-            entries={history}
-            files={files}
-            onRevert={canRevert ? handleRevert : null}
-            filter={historyFilter}
-            onFilterChange={handleHistoryFilterChange}
-          />
+          <>
+            <div className="sidebar-pane sidebar-pane-files">{fileListPanel}</div>
+            <div className="sidebar-pane sidebar-pane-history">{historyPanel}</div>
+          </>
         )}
       </aside>
 
@@ -676,27 +791,24 @@ export default function Workspace({
             <button className="help-btn" title="줄 번호로 이동" disabled={!activeName} onClick={handleGoToLine}>
               줄 이동
             </button>
-            {testbenchFiles.length > 1 && (
-              <select
-                className="tb-select"
-                value={effectiveTestbench ?? ""}
-                onChange={(e) => setSelectedTestbench(e.target.value)}
+            {activeKind === "testbench" ? (
+              <button
+                className="run-btn"
+                disabled={running || !canSimulate}
+                onClick={() => handleRun(activeName)}
               >
-                {testbenchFiles.map((f) => (
-                  <option key={f.name} value={f.name}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
+                {running ? "실행 중..." : "Run Simulation"}
+              </button>
+            ) : (
+              <button
+                className="run-btn"
+                disabled={running || !canSimulate || activeKind !== "rtl"}
+                title={activeKind !== "rtl" ? "RTL 또는 테스트벤치 파일을 선택하세요" : undefined}
+                onClick={() => handleCheckCompile(activeName)}
+              >
+                {running ? "확인 중..." : "컴파일 확인"}
+              </button>
             )}
-            <button
-              className="run-btn"
-              disabled={running || !canSimulate || !effectiveTestbench}
-              title={!effectiveTestbench ? "테스트벤치(_tb.v) 파일이 없습니다" : undefined}
-              onClick={handleRun}
-            >
-              {running ? "실행 중..." : "Run Simulation"}
-            </button>
           </div>
         </div>
 

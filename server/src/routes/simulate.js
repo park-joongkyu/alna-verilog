@@ -1,13 +1,25 @@
 import { Router } from "express";
 import fs from "node:fs/promises";
-import { isValidFileName, resolveBranch, MAIN_BRANCH } from "../lib/workspace.js";
+import { isValidFileName, resolveBranch, MAIN_BRANCH, isTestbenchName } from "../lib/workspace.js";
 import { runSimulation } from "../lib/iverilog.js";
 import { attachNoteToHead } from "../lib/git.js";
 import { isOwner } from "../lib/branchOwners.js";
 import { isAdmin } from "../lib/users.js";
 import { canAccessProject } from "../lib/projects.js";
+import { listSimRuns, logSimRun } from "../lib/simRunLog.js";
 
 const router = Router();
+
+router.get("/history", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await canAccessProject(resolved.project, req.user.username))) {
+    return res.status(403).json({ error: "이 프로젝트의 멤버만 접근할 수 있습니다" });
+  }
+  const limit = Number(req.query.limit) || 20;
+  const runs = await listSimRuns(resolved.project, resolved.branch, limit);
+  res.json({ runs });
+});
 
 router.post("/", async (req, res) => {
   const resolved = await resolveBranch(req, res);
@@ -24,7 +36,7 @@ router.post("/", async (req, res) => {
     return res.status(403).json({ error: "이 브랜치는 소유자만 시뮬레이션을 실행할 수 있습니다." });
   }
 
-  let { files } = req.body || {};
+  let { files, compileOnly } = req.body || {};
 
   if (!files) {
     const entries = await fs.readdir(resolved.dir, { withFileTypes: true });
@@ -38,9 +50,24 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "invalid file name in list" });
   }
 
-  const result = await runSimulation(resolved.dir, files);
+  const result = await runSimulation(resolved.dir, files, { compileOnly: Boolean(compileOnly) });
+
+  // A compile-only check is a quick "does this parse" probe, not a real
+  // testbench run - skip the commit note and the simulation run log so it
+  // doesn't clutter either history.
+  if (compileOnly) {
+    return res.json({ ...result, files });
+  }
+
   const ranAt = new Date().toISOString();
   const commit = await attachNoteToHead(resolved.dir, { ...result, files, ranAt });
+  logSimRun({
+    username: req.user.username,
+    project: resolved.project,
+    branch: resolved.branch,
+    testbench: files.find(isTestbenchName) || null,
+    status: result.status,
+  }).catch(() => {});
   res.json({ ...result, files, ranAt, commit });
 });
 

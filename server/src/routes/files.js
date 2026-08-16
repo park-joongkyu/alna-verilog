@@ -1,10 +1,13 @@
 import { Router } from "express";
 import fs from "node:fs/promises";
-import { isValidFileName, safeFilePath, resolveBranch, MAIN_BRANCH } from "../lib/workspace.js";
-import { commitIfChanged } from "../lib/git.js";
+import path from "node:path";
+import archiver from "archiver";
+import { isValidFileName, safeFilePath, resolveBranch, MAIN_BRANCH, isTestbenchName } from "../lib/workspace.js";
+import { commitIfChanged, renameFile } from "../lib/git.js";
 import { isOwner } from "../lib/branchOwners.js";
 import { isAdmin, getDisplayName } from "../lib/users.js";
 import { canAccessProject } from "../lib/projects.js";
+import { logAudit } from "../lib/auditLog.js";
 
 async function assertProjectAccess(resolved, req, res) {
   if (!(await canAccessProject(resolved.project, req.user.username))) {
@@ -15,12 +18,11 @@ async function assertProjectAccess(resolved, req, res) {
 }
 
 const router = Router();
-const TESTBENCH_RE = /(^|_)tb(_|\.|$)/i;
-const BRAM_STUB_FILES = new Set(["state_bram_432x171.v"]);
+const BRAM_STUB_RE = /_\d+x\d+\.v$/i;
 
 function classify(name) {
-  if (TESTBENCH_RE.test(name)) return "testbench";
-  if (BRAM_STUB_FILES.has(name)) return "bram";
+  if (isTestbenchName(name)) return "testbench";
+  if (BRAM_STUB_RE.test(name)) return "bram";
   return "rtl";
 }
 
@@ -47,6 +49,45 @@ router.get("/", async (req, res) => {
       name: e.name,
       kind: classify(e.name),
     }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  res.json({ files });
+});
+
+router.get("/export", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  const entries = await fs.readdir(resolved.dir, { withFileTypes: true });
+  const names = entries.filter((e) => e.isFile() && e.name.endsWith(".v")).map((e) => e.name);
+
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="${resolved.project}-${resolved.branch}.zip"`);
+
+  const archive = archiver("zip", { zlib: { level: 9 } });
+  archive.on("error", (err) => {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+    else res.end();
+  });
+  archive.pipe(res);
+  for (const name of names) {
+    archive.file(path.join(resolved.dir, name), { name });
+  }
+  await archive.finalize();
+});
+
+router.get("/archived", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  let entries;
+  try {
+    entries = await fs.readdir(path.join(resolved.dir, "archived"), { withFileTypes: true });
+  } catch {
+    entries = [];
+  }
+  const files = entries
+    .filter((e) => e.isFile() && e.name.endsWith(".v"))
+    .map((e) => ({ name: e.name, kind: classify(e.name) }))
     .sort((a, b) => a.name.localeCompare(b.name));
   res.json({ files });
 });
@@ -78,6 +119,13 @@ router.put("/:name", async (req, res) => {
   const actorName = await getDisplayName(req.user.username);
   const message = `${commitMessage || `편집: ${req.params.name}`} (by ${actorName})`;
   const commit = await commitIfChanged(resolved.dir, [req.params.name], message);
+  logAudit({
+    username: req.user.username,
+    action: "file_save",
+    project: resolved.project,
+    branch: resolved.branch,
+    file: req.params.name,
+  }).catch(() => {});
   res.json({ ok: true, commit });
 });
 
@@ -100,7 +148,118 @@ router.post("/", async (req, res) => {
   await fs.writeFile(filePath, content ?? "", "utf-8");
   const actorName = await getDisplayName(req.user.username);
   const commit = await commitIfChanged(resolved.dir, [name], `${commitMessage || `새 파일: ${name}`} (by ${actorName})`);
+  logAudit({
+    username: req.user.username,
+    action: "file_create",
+    project: resolved.project,
+    branch: resolved.branch,
+    file: name,
+  }).catch(() => {});
   res.status(201).json({ ok: true, commit });
+});
+
+router.post("/:name/rename", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  if (!(await assertCanWrite(resolved.project, resolved.branch, req, res))) return;
+  const oldName = req.params.name;
+  const { newName } = req.body || {};
+  if (!isValidFileName(newName)) {
+    return res.status(400).json({ error: "file name must match [A-Za-z0-9_-]+.v" });
+  }
+  if (newName === oldName) {
+    return res.status(400).json({ error: "새 이름이 기존 이름과 같습니다" });
+  }
+  const oldPath = safeFilePath(resolved.dir, oldName);
+  const newPath = safeFilePath(resolved.dir, newName);
+  if (!oldPath || !newPath) return res.status(400).json({ error: "invalid file name" });
+  try {
+    await fs.access(oldPath);
+  } catch {
+    return res.status(404).json({ error: "file not found" });
+  }
+  try {
+    await fs.access(newPath);
+    return res.status(409).json({ error: "같은 이름의 파일이 이미 있습니다" });
+  } catch {
+    // newPath doesn't exist yet, continue
+  }
+  const actorName = await getDisplayName(req.user.username);
+  const commit = await renameFile(
+    resolved.dir,
+    oldName,
+    newName,
+    `이름 변경: ${oldName} → ${newName} (by ${actorName})`
+  );
+  logAudit({
+    username: req.user.username,
+    action: "file_rename",
+    project: resolved.project,
+    branch: resolved.branch,
+    file: newName,
+    detail: oldName,
+  }).catch(() => {});
+  res.json({ ok: true, commit, name: newName });
+});
+
+router.post("/:name/archive", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  if (!(await assertCanWrite(resolved.project, resolved.branch, req, res))) return;
+  const name = req.params.name;
+  const srcPath = safeFilePath(resolved.dir, name);
+  if (!srcPath) return res.status(400).json({ error: "invalid file name" });
+  try {
+    await fs.access(srcPath);
+  } catch {
+    return res.status(404).json({ error: "file not found" });
+  }
+  await fs.mkdir(path.join(resolved.dir, "archived"), { recursive: true });
+  const actorName = await getDisplayName(req.user.username);
+  const commit = await renameFile(resolved.dir, name, `archived/${name}`, `보관: ${name} (by ${actorName})`);
+  logAudit({
+    username: req.user.username,
+    action: "file_archive",
+    project: resolved.project,
+    branch: resolved.branch,
+    file: name,
+  }).catch(() => {});
+  res.json({ ok: true, commit });
+});
+
+router.post("/:name/unarchive", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  if (!(await assertCanWrite(resolved.project, resolved.branch, req, res))) return;
+  const name = req.params.name;
+  if (!isValidFileName(name)) return res.status(400).json({ error: "invalid file name" });
+  const archivedPath = path.join(resolved.dir, "archived", name);
+  try {
+    await fs.access(archivedPath);
+  } catch {
+    return res.status(404).json({ error: "archived file not found" });
+  }
+  const destPath = safeFilePath(resolved.dir, name);
+  if (!destPath) return res.status(400).json({ error: "invalid file name" });
+  try {
+    await fs.access(destPath);
+    return res.status(409).json({ error: "같은 이름의 파일이 이미 있습니다" });
+  } catch {
+    // destPath doesn't exist yet, continue
+  }
+  const actorName = await getDisplayName(req.user.username);
+  const commit = await renameFile(resolved.dir, `archived/${name}`, name, `보관 해제: ${name} (by ${actorName})`);
+  logAudit({
+    username: req.user.username,
+    action: "file_unarchive",
+    project: resolved.project,
+    branch: resolved.branch,
+    file: name,
+  }).catch(() => {});
+  res.json({ ok: true, commit });
 });
 
 router.delete("/:name", async (req, res) => {
@@ -114,6 +273,13 @@ router.delete("/:name", async (req, res) => {
     await fs.unlink(filePath);
     const actorName = await getDisplayName(req.user.username);
     await commitIfChanged(resolved.dir, [req.params.name], `삭제: ${req.params.name} (by ${actorName})`);
+    logAudit({
+      username: req.user.username,
+      action: "file_delete",
+      project: resolved.project,
+      branch: resolved.branch,
+      file: req.params.name,
+    }).catch(() => {});
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: "file not found" });

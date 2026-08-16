@@ -22,6 +22,12 @@ export function isValidProjectId(id) {
   return typeof id === "string" && VALID_PROJECT_ID.test(id);
 }
 
+const TESTBENCH_RE = /(^|_)tb(_|\.|$)/i;
+
+export function isTestbenchName(name) {
+  return typeof name === "string" && TESTBENCH_RE.test(name);
+}
+
 export function projectDir(project) {
   return path.join(PROJECTS_ROOT, project);
 }

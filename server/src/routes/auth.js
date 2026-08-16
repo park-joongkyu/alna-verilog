@@ -1,5 +1,16 @@
 import { Router } from "express";
-import { isValidUsername, isValidEmail, isValidName, createUser, verifyPassword, findUser, setPassword } from "../lib/users.js";
+import {
+  isValidUsername,
+  isValidEmail,
+  isValidName,
+  createUser,
+  verifyPassword,
+  findUser,
+  setPassword,
+  isLocked,
+  recordLoginFailure,
+  recordLoginSuccess,
+} from "../lib/users.js";
 import { signToken } from "../lib/auth.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { createResetToken, consumeResetToken } from "../lib/resetTokens.js";
@@ -41,8 +52,15 @@ router.post("/login", async (req, res) => {
   if (typeof username !== "string" || typeof password !== "string") {
     return res.status(400).json({ error: "아이디와 비밀번호를 입력하세요" });
   }
+  if (await isLocked(username)) {
+    return res.status(423).json({ error: "로그인 실패 횟수를 초과하여 계정이 잠겼습니다. 관리자에게 문의해주세요." });
+  }
   const ok = await verifyPassword(username, password);
-  if (!ok) return res.status(401).json({ error: "아이디 또는 비밀번호가 올바르지 않습니다" });
+  if (!ok) {
+    await recordLoginFailure(username);
+    return res.status(401).json({ error: "아이디 또는 비밀번호가 올바르지 않습니다" });
+  }
+  await recordLoginSuccess(username);
   const token = await signToken(username);
   const user = await findUser(username);
   logAccess({ username, ip: req.ip, userAgent: req.headers["user-agent"] }).catch(() => {});

@@ -40,10 +40,16 @@ export default function HelpModal({ onClose }) {
             <ul>
               <li>왼쪽 "파일" 탭에서 .v 파일 클릭하면 에디터에 열림</li>
               <li>편집하면 0.8초 후 자동 저장 (내 브랜치일 때만 가능)</li>
-              <li>테스트벤치가 여러 개면 상단 드롭다운에서 실행할 것 고르기</li>
+              <li>상단 버튼은 <b>지금 에디터에 열려있는 파일에 따라 자동으로 바뀜</b> — 테스트벤치를 열면 "Run Simulation"
+                (그 테스트벤치 실행), RTL 파일을 열면 "컴파일 확인"(테스트벤치 없이 컴파일만 체크)</li>
+              <li>다른 파일을 굳이 열지 않고도, 파일 목록에서 테스트벤치 옆 "▶"나 RTL 옆 "✓"를 눌러 바로 실행/확인할 수 있음</li>
               <li>"Run Simulation" → 컴파일 에러 / PASS / FAIL / 결과 불명이 아래 로그에 표시됨</li>
-              <li>"새 파일"(+) / 파일 옆 × 로 생성·삭제</li>
+              <li>"새 파일"(+) / 파일 옆 × 로 생성·삭제, ✎로 이름 변경</li>
+              <li>파일 옆 🗄로 "보관" — 삭제하지 않고 파일 목록/시뮬레이션/내보내기(zip)에서만 안 보이게 치워둠. 파일 목록
+                맨 아래 "▸ 보관된 파일 (N)"을 펼치면 보관된 파일들을 볼 수 있고, "복원"으로 언제든 다시 꺼낼 수 있음</li>
               <li>파일 목록 위 전체/RTL/TB/BRAM 필터로 원하는 종류만 골라볼 수 있음</li>
+              <li>왼쪽 "히스토리" 탭 맨 위에 "최근 시뮬레이션 실행" 목록이 있어서, 최근에 어떤 테스트벤치를 누가 언제 돌렸고
+                PASS/FAIL이었는지 볼 수 있음 (실제 커밋과는 별개로 기록됨)</li>
               <li>모바일에서는 브랜치 / 파일 / 히스토리 / 에디터 / LLM 이 각각 별도 탭으로 나뉘어 있음 (화면 위쪽)</li>
             </ul>
           </section>
@@ -51,12 +57,21 @@ export default function HelpModal({ onClose }) {
           <section>
             <h4>3. 주의사항</h4>
             <ul>
-              <li>파일 목록에 <span className="badge badge-bram">BRAM</span> 태그가 붙은 파일(현재 <code>state_bram_432x171.v</code>)은
-                실제 합성 가능한 RTL이 아니라, Vivado Block Memory Generator IP를 시뮬레이션용으로 흉내낸 동작(behavioral) 스텁 코드입니다</li>
-              <li>Icarus Verilog 같은 오픈소스 시뮬레이터로 기능 검증을 하기 위한 용도로만 존재하며, 실제 Xilinx IP(.xci)나
-                UNISIM 시뮬레이션 라이브러리를 대체하지 않습니다</li>
-              <li>실제 합성 / 비트스트림 생성 시에는 이 파일을 반드시 제외하고, Vivado에서 생성한 진짜 <code>state_bram_432x171</code> IP 코어로 교체해야 합니다</li>
-              <li>다른 <span className="badge badge-rtl">RTL</span> 파일과 시각적으로 구분하기 위해 BRAM 태그를 별도로 표시합니다</li>
+              <li><b>TB/BRAM 태그는 파일 내용이 아니라 파일 이름만 보고 자동으로 붙습니다</b> — 서버가 코드를 분석하는 게 아니라
+                이름이 정해진 규칙에 맞는지만 확인해요
+                <ul>
+                  <li>이름 어딘가에 <code>_tb</code>가 들어가면(<code>~_tb.v</code>, <code>tb_~.v</code> 등) → <span className="badge badge-testbench">TB</span></li>
+                  <li>이름이 <code>_숫자x숫자.v</code>로 끝나면(앞부분은 상관없음, 예: <code>state_bram_432x171.v</code>,
+                    <code>내이름_576x512.v</code>) → <span className="badge badge-bram">BRAM</span></li>
+                  <li>둘 다 아니면 → <span className="badge badge-rtl">RTL</span></li>
+                </ul>
+              </li>
+              <li>그래서 이름만 규칙에 맞으면 실제 내용과 상관없이 태그가 붙어요 — 파일 종류를 강제하는 게 아니라, 사람이 한눈에
+                구분하기 쉽게 해주는 표시일 뿐입니다</li>
+              <li><span className="badge badge-bram">BRAM</span> 태그가 붙은 파일은 보통 Vivado Block Memory Generator IP를
+                시뮬레이션용으로 흉내낸 동작(behavioral) 스텁 코드예요. Icarus Verilog 같은 오픈소스 시뮬레이터로 기능 검증만
+                하기 위한 용도로, 실제 Xilinx IP(.xci)나 UNISIM 시뮬레이션 라이브러리를 대체하지 않습니다</li>
+              <li>실제 합성 / 비트스트림 생성 시에는 이런 스텁 파일을 반드시 제외하고, Vivado에서 생성한 진짜 IP 코어로 교체해야 합니다</li>
             </ul>
           </section>
 

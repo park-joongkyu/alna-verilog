@@ -19,6 +19,7 @@ import { listProjects } from "./lib/projects.js";
 
 const app = express();
 app.set("trust proxy", 1);
+app.disable("x-powered-by");
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "http://localhost:5173" }));
 app.use(express.json({ limit: "2mb" }));
 

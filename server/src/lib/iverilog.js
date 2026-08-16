@@ -60,26 +60,41 @@ function judgePassFail(runStdout, exitCode, timedOut) {
   if (exitCode !== 0) return "fail";
   if (/\$fatal/i.test(runStdout)) return "fail";
 
-  // Only trust explicit tagged markers ("[FAIL] ..." / "FAIL: ..." at the
-  // start of a line), not a bare word-boundary search — prose describing a
-  // passing check can itself contain the word "fail" (e.g. "8 failed trials
-  // should terminate..."), which would otherwise produce false FAILs.
-  // Testbenches that print neither marker report "unknown" rather than a guess.
-  const hasFailTag = /\[FAIL\]|^FAIL(ED)?:/im.test(runStdout);
-  const hasPassTag = /\[PASS\]|^PASS(ED)?:/im.test(runStdout);
+  // Only trust explicit tagged markers, not a bare word-boundary search —
+  // prose describing a passing check can itself contain the word "fail"
+  // (e.g. "8 failed trials should terminate..."), which would otherwise
+  // produce false FAILs. Two shapes are trusted: a line that starts with
+  // FAIL/PASS ("FAIL lane 3 : ...", "PASS: ...", "[FAIL] ...", with or
+  // without a colon), and a "TESTS PASSED"/"TESTS FAILED" summary line
+  // anywhere in the output ("ALL 5 TESTS PASSED", "5 of 10 TESTS FAILED",
+  // "### ALL TESTS PASSED ###"). Testbenches that print neither shape
+  // report "unknown" rather than a guess.
+  const hasFailTag = /\[FAIL\]|^FAIL(ED)?\b|\bTESTS?\s+FAIL(ED)?\b/im.test(runStdout);
+  const hasPassTag = /\[PASS\]|^PASS(ED)?\b|\bTESTS?\s+PASS(ED)?\b/im.test(runStdout);
   if (hasFailTag) return "fail";
   if (hasPassTag) return "pass";
   return "unknown";
 }
 
 /**
- * Compiles and runs every .v file in `dir` together.
+ * Compiles and runs every .v file in `dir` together. If `compileOnly` is
+ * set, stops after the compile step (no vvp run) — used for a quick
+ * "does this RTL parse/elaborate" check when there's no testbench involved.
  */
-export async function runSimulation(dir, files) {
+export async function runSimulation(dir, files, { compileOnly = false } = {}) {
   const outFile = "sim_out.vvp";
-  const compileArgs = ["-g2012", "-o", outFile, ...files];
+  // -t null: elaborate only, discard the netlist. Used for compileOnly checks
+  // so we're not producing/leaving behind a vvp file we'll never run.
+  const compileArgs = compileOnly ? ["-t", "null", "-g2012", ...files] : ["-g2012", "-o", outFile, ...files];
 
   const compile = await runProcess(IVERILOG_BIN, compileArgs, dir, SIM_TIMEOUT_MS);
+  if (compileOnly) {
+    return {
+      status: compile.timedOut ? "timeout" : compile.code === 0 ? "compile_pass" : "compile_error",
+      compileLog: compile.stdout + compile.stderr,
+      runLog: "",
+    };
+  }
   if (compile.code !== 0 || compile.timedOut) {
     return {
       status: compile.timedOut ? "timeout" : "compile_error",

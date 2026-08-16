@@ -4,6 +4,7 @@ import { isValidFileName, resolveBranch, MAIN_BRANCH } from "../lib/workspace.js
 import { isOwner } from "../lib/branchOwners.js";
 import { isAdmin, getDisplayName } from "../lib/users.js";
 import { canAccessProject } from "../lib/projects.js";
+import { logAudit } from "../lib/auditLog.js";
 
 const router = Router();
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,6 +63,14 @@ router.post("/:hash/revert", async (req, res) => {
     const commit = file
       ? await revertFileToCommit(resolved.dir, req.params.hash, file, actorName)
       : await revertToCommit(resolved.dir, req.params.hash, actorName);
+    logAudit({
+      username: req.user.username,
+      action: "revert",
+      project: resolved.project,
+      branch: resolved.branch,
+      file: file || null,
+      detail: req.params.hash,
+    }).catch(() => {});
     res.json({ ok: true, commit });
   } catch (err) {
     res.status(400).json({ error: err.message || "revert failed" });

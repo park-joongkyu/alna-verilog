@@ -21,6 +21,7 @@ import {
 import { isOwner } from "../lib/branchOwners.js";
 import { isAdmin, getDisplayName } from "../lib/users.js";
 import { canAccessProject } from "../lib/projects.js";
+import { logAudit } from "../lib/auditLog.js";
 
 const router = Router();
 
@@ -113,6 +114,13 @@ router.post("/start", async (req, res) => {
       const files = await buildConflictList(dir);
       return res.json({ status: "conflict", files });
     }
+    logAudit({
+      username: req.user.username,
+      action: "merge",
+      project,
+      branch: target,
+      detail: `${source} -> ${target} (${result.commit})`,
+    }).catch(() => {});
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message || "merge failed" });
@@ -137,9 +145,10 @@ router.post("/resolve", async (req, res) => {
 router.post("/complete", async (req, res) => {
   const resolved = await resolveTarget(req, res);
   if (!resolved) return;
-  const { dir } = resolved;
+  const { project, target, dir } = resolved;
   try {
     const commit = await completeMerge(dir);
+    logAudit({ username: req.user.username, action: "merge", project, branch: target, detail: commit }).catch(() => {});
     res.json({ status: "merged", commit });
   } catch (err) {
     if (err.code === "UNRESOLVED_CONFLICTS") {

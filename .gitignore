@@ -3,6 +3,7 @@ dist/
 *.vvp
 *.log
 .env*
+!client/.env.production
 server/projects/
 server/data/
 .migration-backup*

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { DiffEditor } from "@monaco-editor/react";
 import { listFiles, getFile } from "../api";
 import { buildPrompt, parseTextResponse, stripCodeFence } from "../llmPrompt";
+import { registerVerilogLanguage, VERILOG_LANGUAGE_ID, EDITOR_THEME_ID } from "../verilogLanguage";
 
 const VALID_NAME = /^[A-Za-z0-9_-]+\.v$/;
 
@@ -15,6 +17,8 @@ export default function LLMPanel({ activeName, currentProject, currentBranch, la
   const [summary, setSummary] = useState("");
   const [availableFiles, setAvailableFiles] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState(() => new Set());
+  const [diffPreview, setDiffPreview] = useState(null);
+  const [diffBusy, setDiffBusy] = useState(false);
 
   useEffect(() => {
     listFiles(currentProject, currentBranch).then((list) => setAvailableFiles(list));
@@ -86,6 +90,31 @@ export default function LLMPanel({ activeName, currentProject, currentBranch, la
 
   const removeFile = (index) => {
     setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const openDiffPreview = async (f) => {
+    setDiffBusy(true);
+    try {
+      const exists = availableFiles.some((af) => af.name === f.name);
+      let oldContent = "";
+      if (exists) {
+        try {
+          const data = await getFile(currentProject, f.name, currentBranch);
+          oldContent = data.content;
+        } catch {
+          // couldn't load current content; show diff against empty
+        }
+      }
+      setDiffPreview({ name: f.name, newContent: f.content, oldContent, isNew: !exists });
+    } finally {
+      setDiffBusy(false);
+    }
+  };
+
+  const confirmApply = () => {
+    if (!diffPreview) return;
+    onApply(diffPreview.name, diffPreview.newContent, requestText);
+    setDiffPreview(null);
   };
 
   const copyFile = async (name, content) => {
@@ -198,8 +227,8 @@ export default function LLMPanel({ activeName, currentProject, currentBranch, la
                   </button>
                   <button
                     className="apply-btn"
-                    disabled={!VALID_NAME.test(f.name)}
-                    onClick={() => onApply(f.name, f.content, requestText)}
+                    disabled={!VALID_NAME.test(f.name) || diffBusy}
+                    onClick={() => openDiffPreview(f)}
                   >
                     적용
                   </button>
@@ -211,6 +240,34 @@ export default function LLMPanel({ activeName, currentProject, currentBranch, la
               <pre className="llm-code">{f.content}</pre>
             </div>
           ))}
+        </div>
+      )}
+
+      {diffPreview && (
+        <div className="merge-modal-backdrop" onClick={() => setDiffPreview(null)}>
+          <div className="merge-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="merge-modal-header">
+              <h3>
+                {diffPreview.isNew ? "새 파일 미리보기" : "변경 내용 미리보기"} — {diffPreview.name}
+              </h3>
+              <button className="llm-submit secondary" onClick={() => setDiffPreview(null)}>닫기</button>
+            </div>
+            <div className="diff-preview-wrap">
+              <DiffEditor
+                height="100%"
+                language={VERILOG_LANGUAGE_ID}
+                theme={EDITOR_THEME_ID}
+                original={diffPreview.oldContent}
+                modified={diffPreview.newContent}
+                beforeMount={registerVerilogLanguage}
+                options={{ fontSize: 13, readOnly: true, minimap: { enabled: false }, automaticLayout: true }}
+              />
+            </div>
+            <div className="merge-modal-actions">
+              <button className="llm-submit secondary" onClick={() => setDiffPreview(null)}>취소</button>
+              <button className="llm-submit" onClick={confirmApply}>이 내용으로 적용</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

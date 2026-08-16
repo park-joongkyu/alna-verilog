@@ -62,8 +62,28 @@ export const createFile = (project, name, content = "", branch, commitMessage) =
 export const deleteFile = (project, name, branch) =>
   api.delete(`/files/${encodeURIComponent(name)}`, { params: { project, branch } }).then((r) => r.data);
 
-export const runSimulation = (project, branch, files) =>
-  api.post("/simulate", { project, branch, ...(files ? { files } : {}) }).then((r) => r.data);
+export const renameFile = (project, name, newName, branch) =>
+  api.post(`/files/${encodeURIComponent(name)}/rename`, { project, newName, branch }).then((r) => r.data);
+
+export const listArchivedFiles = (project, branch) =>
+  api.get("/files/archived", { params: { project, branch } }).then((r) => r.data.files);
+
+export const archiveFile = (project, name, branch) =>
+  api.post(`/files/${encodeURIComponent(name)}/archive`, { project, branch }).then((r) => r.data);
+
+export const unarchiveFile = (project, name, branch) =>
+  api.post(`/files/${encodeURIComponent(name)}/unarchive`, { project, branch }).then((r) => r.data);
+
+export const exportBranch = (project, branch) =>
+  api.get("/files/export", { params: { project, branch }, responseType: "blob" }).then((r) => r.data);
+
+export const runSimulation = (project, branch, files, options) =>
+  api
+    .post("/simulate", { project, branch, ...(files ? { files } : {}), ...(options?.compileOnly ? { compileOnly: true } : {}) })
+    .then((r) => r.data);
+
+export const listSimRuns = (project, branch, limit) =>
+  api.get("/simulate/history", { params: { project, branch, limit } }).then((r) => r.data.runs);
 
 export const listHistory = (project, branch, params) =>
   api.get("/history", { params: { project, branch, ...params } }).then((r) => r.data.entries);
@@ -116,6 +136,11 @@ export const adminResetPassword = (username, newPassword) =>
   api.post(`/admin/users/${encodeURIComponent(username)}/reset-password`, { newPassword }).then((r) => r.data);
 
 export const adminListAccessLog = () => api.get("/admin/access-log").then((r) => r.data.entries);
+
+export const adminListAuditLog = () => api.get("/admin/audit-log").then((r) => r.data.entries);
+
+export const adminUnlockUser = (username) =>
+  api.post(`/admin/users/${encodeURIComponent(username)}/unlock`).then((r) => r.data);
 
 export const submitFeedback = (category, message, project) =>
   api.post("/feedback", { category, message, project }).then((r) => r.data.feedback);

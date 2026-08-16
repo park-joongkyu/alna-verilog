@@ -11,6 +11,7 @@ import {
 } from "../lib/branchOwners.js";
 import { getDisplayName, isAdmin, findUser } from "../lib/users.js";
 import { canAccessProject } from "../lib/projects.js";
+import { logAudit } from "../lib/auditLog.js";
 
 const router = Router();
 
@@ -163,6 +164,7 @@ router.delete("/:name", async (req, res) => {
   try {
     await removeBranchWorktree(project, name);
     await removeOwner(project, name);
+    logAudit({ username: req.user.username, action: "branch_delete", project, branch: name }).catch(() => {});
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message || "브랜치 삭제 실패" });

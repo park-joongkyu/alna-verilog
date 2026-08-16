@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { listAllUsers, findUser, setPassword, getDisplayName } from "../lib/users.js";
+import { listAllUsers, findUser, setPassword, getDisplayName, unlockUser } from "../lib/users.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 import { listAccessLog } from "../lib/accessLog.js";
+import { listAuditLog } from "../lib/auditLog.js";
 
 const router = Router();
 
@@ -20,6 +21,14 @@ router.get("/access-log", async (_req, res) => {
   res.json({ entries: withNames });
 });
 
+router.get("/audit-log", async (_req, res) => {
+  const entries = await listAuditLog();
+  const withNames = await Promise.all(
+    entries.map(async (e) => ({ ...e, name: await getDisplayName(e.username) }))
+  );
+  res.json({ entries: withNames });
+});
+
 router.post("/users/:username/reset-password", async (req, res) => {
   const { username } = req.params;
   const { newPassword } = req.body || {};
@@ -29,6 +38,14 @@ router.post("/users/:username/reset-password", async (req, res) => {
   const user = await findUser(username);
   if (!user) return res.status(404).json({ error: "사용자를 찾을 수 없습니다" });
   await setPassword(username, newPassword);
+  res.json({ ok: true });
+});
+
+router.post("/users/:username/unlock", async (req, res) => {
+  const { username } = req.params;
+  const user = await findUser(username);
+  if (!user) return res.status(404).json({ error: "사용자를 찾을 수 없습니다" });
+  await unlockUser(username);
   res.json({ ok: true });
 });
 

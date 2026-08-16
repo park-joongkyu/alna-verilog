@@ -53,6 +53,13 @@ export async function commitIfChanged(dir, fileNames, message) {
   return result.commit;
 }
 
+export async function renameFile(dir, oldName, newName, message) {
+  const git = client(dir);
+  await git.mv(oldName, newName);
+  const result = await git.commit(message);
+  return result.commit;
+}
+
 export async function attachNoteToHead(dir, noteObj) {
   const git = client(dir);
   const hash = await git.revparse(["HEAD"]);

@@ -205,11 +205,23 @@
 }
 
 .sidebar {
-  width: 285px;
+  width: 480px;
   flex-shrink: 0;
   background: #F2F4F7;
   border-right: 1px solid #DFE3E9;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.sidebar-pane {
+  flex: 1;
+  min-width: 0;
   overflow-y: auto;
+}
+
+.sidebar-pane-files {
+  border-right: 2px solid #DFE3E9;
 }
 
 .sidebar-account-bar {
@@ -516,6 +528,14 @@
   justify-content: flex-end;
 }
 
+.diff-preview-wrap {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #DFE3E9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
 .merge-file-tabs {
   display: flex;
   gap: 4px;
@@ -742,16 +762,61 @@
   cursor: pointer;
 }
 
-.file-list .delete-btn {
+.file-list .file-inline-btn {
   background: none;
-  border: none;
-  color: #8A93A3;
+  border: 1px solid #E7EAEF;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
   cursor: pointer;
-  visibility: hidden;
 }
 
-.file-list li:hover .delete-btn {
-  visibility: visible;
+.file-list .file-inline-btn.run {
+  color: #2E6CC4;
+}
+
+.file-list .file-inline-btn.check {
+  color: #2B7A34;
+}
+
+.archived-files-details {
+  font-size: 12px;
+  color: #6B7280;
+  border-top: 1px solid #E7EAEF;
+  padding: 8px 12px;
+}
+
+.archived-files-details summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.archived-files-details ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.archived-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.file-name-archived {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #4C5261;
+}
+
+.file-list .file-inline-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .badge {
@@ -824,6 +889,11 @@
 .active-file {
   font-size: 13px;
   color: #4C5261;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dirty-dot {
@@ -988,16 +1058,6 @@
   text-transform: uppercase;
 }
 
-.tb-select {
-  background: #FFFFFF;
-  border: 1px solid #E7EAEF;
-  border-radius: 4px;
-  color: #2D313B;
-  padding: 5px 6px;
-  font-size: 12.5px;
-  max-width: 220px;
-}
-
 .run-btn {
   background: #0e639c;
   color: white;
@@ -1089,6 +1149,27 @@
   text-transform: uppercase;
 }
 
+.log-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.log-copy-btn {
+  background: #FFFFFF;
+  border: 1px solid #E7EAEF;
+  border-radius: 4px;
+  color: #4C5261;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.log-copy-all-btn {
+  margin-left: auto;
+}
+
 .log-block {
   background: #EEF0F3;
   border: 1px solid #E7EAEF;
@@ -1108,7 +1189,7 @@
 }
 
 .llm-sidebar {
-  width: 340px;
+  width: 300px;
   flex-shrink: 0;
   background: #FFFFFF;
   border-left: 1px solid #DFE3E9;
@@ -1385,24 +1466,57 @@
   filter: brightness(1.15);
 }
 
-.sidebar-tabs {
-  display: flex;
-  border-bottom: 1px solid #DFE3E9;
-}
-
-.sidebar-tabs button {
-  flex: 1;
-  background: none;
-  border: none;
+.sim-run-history {
+  border-bottom: 1px solid #E7EAEF;
+  padding: 10px 12px;
+  font-size: 12px;
   color: #6B7280;
-  padding: 8px 0;
-  font-size: 12.5px;
-  cursor: pointer;
 }
 
-.sidebar-tabs button.active {
-  color: #1B1E24;
-  border-bottom: 2px solid #0e639c;
+.sim-run-history summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.sim-run-history .sim-run-list {
+  margin-top: 6px;
+}
+
+.sim-run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sim-run-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.sim-run-item-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sim-run-tb {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #2D313B;
+}
+
+.sim-run-meta {
+  color: #8A93A3;
+  font-size: 11px;
 }
 
 .history-filter {
@@ -1565,10 +1679,6 @@
     flex-direction: column;
   }
 
-  .sidebar-tabs {
-    display: none;
-  }
-
   .branch-sidebar {
     border-right: none;
     border-bottom: 1px solid #DFE3E9;
@@ -1602,10 +1712,6 @@
   .run-controls {
     flex-wrap: wrap;
     width: 100%;
-  }
-
-  .tb-select {
-    max-width: 140px;
   }
 
   .editor-wrap {
