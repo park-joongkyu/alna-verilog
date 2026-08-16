@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 const KIND_LABEL = { testbench: "TB", rtl: "RTL", bram: "BRAM" };
 const FILTERS = [
@@ -8,9 +8,10 @@ const FILTERS = [
   { key: "bram", label: "BRAM" },
 ];
 
-export default function FileList({ files, activeName, onSelect, onCreate, onDelete }) {
+export default function FileList({ files, activeName, onSelect, onCreate, onUpload, onDelete }) {
   const editable = Boolean(onCreate);
   const [filterKind, setFilterKind] = useState("all");
+  const fileInputRef = useRef(null);
 
   const counts = files.reduce((acc, f) => {
     acc[f.kind] = (acc[f.kind] ?? 0) + 1;
@@ -25,12 +26,32 @@ export default function FileList({ files, activeName, onSelect, onCreate, onDele
     onCreate(name);
   };
 
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileInputChange = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) onUpload?.(file);
+  };
+
   return (
     <div className="file-list">
       <div className="file-list-header">
         <span>파일</span>
         {editable && (
-          <button onClick={handleCreate} title="새 파일">+</button>
+          <div className="file-list-header-actions">
+            <button onClick={handleCreate} title="새 파일">+</button>
+            <button onClick={handleUploadClick} title="파일 업로드">↑</button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".v,.sv,.vh,.txt"
+              style={{ display: "none" }}
+              onChange={handleFileInputChange}
+            />
+          </div>
         )}
       </div>
       <div className="file-filter-tabs">

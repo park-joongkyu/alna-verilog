@@ -84,6 +84,10 @@ export default function LLMPanel({ activeName, currentProject, currentBranch, la
     setFiles((prev) => prev.map((f, i) => (i === index ? { ...f, name: newName } : f)));
   };
 
+  const removeFile = (index) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const copyFile = async (name, content) => {
     try {
       await navigator.clipboard.writeText(content);
@@ -198,6 +202,9 @@ export default function LLMPanel({ activeName, currentProject, currentBranch, la
                     onClick={() => onApply(f.name, f.content, requestText)}
                   >
                     적용
+                  </button>
+                  <button className="remove-btn" onClick={() => removeFile(i)}>
+                    지우기
                   </button>
                 </div>
               </div>

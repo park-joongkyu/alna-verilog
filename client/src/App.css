@@ -695,6 +695,11 @@
   border-bottom: 1px solid #DFE3E9;
 }
 
+.file-list-header-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .file-list-header button {
   background: none;
   border: 1px solid #DFE3E9;
@@ -1371,6 +1376,11 @@
   cursor: not-allowed;
 }
 
+.llm-file-actions .remove-btn {
+  background: #FBE1DE;
+  color: #B33A2E;
+}
+
 .llm-file-actions button:hover {
   filter: brightness(1.15);
 }
@@ -1592,10 +1602,6 @@
   .run-controls {
     flex-wrap: wrap;
     width: 100%;
-  }
-
-  .current-user {
-    display: none;
   }
 
   .tb-select {

@@ -357,6 +357,25 @@ export default function Workspace({
     }
   };
 
+  const handleUploadFile = async (file) => {
+    if (!canEdit) return;
+    try {
+      const text = await file.text();
+      const exists = files.some((f) => f.name === file.name);
+      if (exists && !window.confirm(`${file.name} 파일이 이미 있습니다. 덮어쓸까요?`)) return;
+      if (exists) {
+        await saveFile(currentProject, file.name, text, currentBranch, `업로드: ${file.name}`);
+      } else {
+        await createFile(currentProject, file.name, text, currentBranch, `업로드: ${file.name}`);
+        await refreshFiles();
+      }
+      await refreshHistory();
+      openFile(file.name);
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "파일 업로드 실패");
+    }
+  };
+
   const handleDelete = async (name) => {
     if (!canEdit) return;
     if (!window.confirm(`${name} 파일을 삭제할까요?`)) return;
@@ -629,6 +648,7 @@ export default function Workspace({
             activeName={activeName}
             onSelect={handleSelect}
             onCreate={canEdit ? handleCreate : null}
+            onUpload={canEdit ? handleUploadFile : null}
             onDelete={canEdit ? handleDelete : null}
           />
         ) : (
