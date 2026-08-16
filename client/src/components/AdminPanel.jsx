@@ -17,6 +17,7 @@ const AUDIT_ACTION_LABEL = {
   file_rename: "파일 이름 변경",
   file_archive: "파일 보관",
   file_unarchive: "파일 보관 해제",
+  project_delete: "프로젝트 삭제",
   revert: "되돌리기",
   branch_delete: "브랜치 삭제",
   merge: "병합",

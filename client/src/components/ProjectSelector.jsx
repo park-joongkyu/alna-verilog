@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { listProjects, createProject } from "../api";
+import { listProjects, createProject, deleteProject } from "../api";
 
-export default function ProjectSelector({ onSelect, onLogout }) {
+export default function ProjectSelector({ onSelect, onLogout, isAdmin }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -30,6 +30,20 @@ export default function ProjectSelector({ onSelect, onLogout }) {
     return base || `project-${Date.now()}`;
   };
 
+  const handleDelete = async (e, p) => {
+    e.stopPropagation();
+    const typed = window.prompt(
+      `"${p.name}"(${p.id}) 프로젝트를 삭제합니다. 모든 브랜치·파일·이력이 영구적으로 사라지고 되돌릴 수 없습니다.\n계속하려면 프로젝트 id를 정확히 입력하세요: ${p.id}`
+    );
+    if (typed !== p.id) return;
+    try {
+      await deleteProject(p.id);
+      await refresh();
+    } catch (err) {
+      alert(err?.response?.data?.error ?? "삭제 실패");
+    }
+  };
+
   const handleCreate = async () => {
     const name = window.prompt("새 프로젝트 이름 (예: AIX Tiny-YOLO)");
     if (!name) return;
@@ -51,11 +65,20 @@ export default function ProjectSelector({ onSelect, onLogout }) {
         {!loading && !error && (
           <ul className="project-list">
             {projects.map((p) => (
-              <li key={p.id}>
+              <li key={p.id} className="project-item-row">
                 <button className="project-item" onClick={() => onSelect(p.id, p.name)}>
                   <span className="project-name">{p.name}</span>
                   <span className="project-id">{p.id}</span>
                 </button>
+                {isAdmin && (
+                  <button
+                    className="project-delete-btn"
+                    title="프로젝트 삭제 (관리자)"
+                    onClick={(e) => handleDelete(e, p)}
+                  >
+                    ×
+                  </button>
+                )}
               </li>
             ))}
             {projects.length === 0 && <li className="empty">프로젝트가 없습니다</li>}

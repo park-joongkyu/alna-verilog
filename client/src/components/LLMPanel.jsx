@@ -31,6 +31,16 @@ export default function LLMPanel({ activeName, currentProject, currentBranch, la
     if (activeName) setSelectedFiles(new Set([activeName]));
   }, [activeName]);
 
+  const activeKind = availableFiles.find((f) => f.name === activeName)?.kind;
+
+  const requestTbForActive = () => {
+    if (!activeName) return;
+    setRequestText(
+      `${activeName}에 맞는 기본 테스트벤치를 만들어줘. 모든 입출력 신호를 커버하고, 몇 가지 edge case(경계값, 이상 입력 등)도 포함해줘.`
+    );
+    setSelectedFiles(new Set([activeName]));
+  };
+
   const toggleFile = (name) => {
     setSelectedFiles((prev) => {
       const next = new Set(prev);
@@ -142,6 +152,12 @@ export default function LLMPanel({ activeName, currentProject, currentBranch, la
         onChange={(e) => setRequestText(e.target.value)}
         rows={3}
       />
+
+      {activeKind === "rtl" && (
+        <button className="llm-submit secondary" onClick={requestTbForActive}>
+          {activeName} TB 요청
+        </button>
+      )}
 
       <div className="llm-file-picker">
         {availableFiles.map((f) => (

@@ -8,7 +8,20 @@ const FILTERS = [
   { key: "bram", label: "BRAM" },
 ];
 
-function FileItem({ f, activeName, onSelect, onRunTestbench, onCheckCompile, running, editable, onRename, onArchive, onDelete }) {
+function FileItem({
+  f,
+  activeName,
+  onSelect,
+  onRunTestbench,
+  onCheckCompile,
+  running,
+  editable,
+  onRename,
+  onArchive,
+  onDelete,
+  selectedTbs,
+  onToggleTb,
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -32,6 +45,15 @@ function FileItem({ f, activeName, onSelect, onRunTestbench, onCheckCompile, run
 
   return (
     <li className={f.name === activeName ? "active" : ""}>
+      {f.kind === "testbench" && onToggleTb && (
+        <input
+          type="checkbox"
+          className="tb-suite-checkbox"
+          checked={selectedTbs?.has(f.name) ?? false}
+          onChange={() => onToggleTb(f.name)}
+          title={`${f.name} 스위트에 포함`}
+        />
+      )}
       <span className={`badge badge-${f.kind}`}>{KIND_LABEL[f.kind] ?? f.kind}</span>
       <span className="file-name" onClick={() => onSelect(f.name)}>{f.name}</span>
       {f.kind === "testbench" && onRunTestbench && (
@@ -106,10 +128,16 @@ export default function FileList({
   archivedFiles,
   onArchive,
   onUnarchive,
+  selectedTbs,
+  onToggleTb,
+  onRunSuite,
+  onRunAllTbs,
+  onRerunFailing,
 }) {
   const editable = Boolean(onCreate);
   const [filterKind, setFilterKind] = useState("all");
   const fileInputRef = useRef(null);
+  const tbCount = files.filter((f) => f.kind === "testbench").length;
 
   const counts = files.reduce((acc, f) => {
     acc[f.kind] = (acc[f.kind] ?? 0) + 1;
@@ -168,6 +196,25 @@ export default function FileList({
           </button>
         ))}
       </div>
+      {tbCount > 0 && (onRunSuite || onRunAllTbs || onRerunFailing) && (
+        <div className="tb-suite-bar">
+          {onRunSuite && (
+            <button onClick={() => onRunSuite([...selectedTbs])} disabled={!selectedTbs?.size || running}>
+              선택 실행 ({selectedTbs?.size ?? 0})
+            </button>
+          )}
+          {onRunAllTbs && (
+            <button onClick={onRunAllTbs} disabled={running}>
+              전체 실행 ({tbCount})
+            </button>
+          )}
+          {onRerunFailing && (
+            <button onClick={onRerunFailing} disabled={running}>
+              실패만 재실행
+            </button>
+          )}
+        </div>
+      )}
       <ul>
         {visibleFiles.map((f) => (
           <FileItem
@@ -182,6 +229,8 @@ export default function FileList({
             onRename={onRename}
             onArchive={onArchive}
             onDelete={onDelete}
+            selectedTbs={selectedTbs}
+            onToggleTb={onToggleTb}
           />
         ))}
         {visibleFiles.length === 0 && (

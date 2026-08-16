@@ -1,5 +1,27 @@
 import { useState } from "react";
 
+const FILE_LINE_RE = /([A-Za-z0-9_.-]+\.v):(\d+)/g;
+
+function renderLogWithLinks(text, onJumpToLine) {
+  if (!onJumpToLine || !text) return text;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+  FILE_LINE_RE.lastIndex = 0;
+  while ((match = FILE_LINE_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    const [full, file, line] = match;
+    parts.push(
+      <button key={match.index} className="log-line-link" onClick={() => onJumpToLine(file, Number(line))}>
+        {full}
+      </button>
+    );
+    lastIndex = match.index + full.length;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
+}
+
 const STATUS_LABEL = {
   pass: { text: "PASS", className: "status-pass" },
   fail: { text: "FAIL", className: "status-fail" },
@@ -9,7 +31,7 @@ const STATUS_LABEL = {
   unknown: { text: "결과 불명 (PASS/FAIL 마커 없음)", className: "status-unknown" },
 };
 
-export default function LogPanel({ running, result }) {
+export default function LogPanel({ running, result, onJumpToLine }) {
   const [copiedKey, setCopiedKey] = useState(null);
 
   const copy = async (key, text) => {
@@ -64,7 +86,7 @@ export default function LogPanel({ running, result }) {
                 </button>
               </div>
               <pre className={`log-block ${result.status === "compile_error" ? "error" : ""}`}>
-                {result.compileLog || "(내용 없음)"}
+                {renderLogWithLinks(result.compileLog || "(내용 없음)", onJumpToLine)}
               </pre>
             </div>
           ) : (
@@ -77,7 +99,7 @@ export default function LogPanel({ running, result }) {
                       {copiedKey === "compile" ? "복사됨" : "복사"}
                     </button>
                   </div>
-                  <pre className="log-block">{result.compileLog}</pre>
+                  <pre className="log-block">{renderLogWithLinks(result.compileLog, onJumpToLine)}</pre>
                 </div>
               )}
               <div className="log-section">

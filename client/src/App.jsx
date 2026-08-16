@@ -102,7 +102,7 @@ export default function App() {
   }
 
   if (!currentProject) {
-    return <ProjectSelector onSelect={handleSelectProject} onLogout={handleLogout} />;
+    return <ProjectSelector onSelect={handleSelectProject} onLogout={handleLogout} isAdmin={isAdmin} />;
   }
 
   return (

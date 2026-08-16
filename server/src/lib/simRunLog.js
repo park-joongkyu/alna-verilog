@@ -9,6 +9,18 @@ export async function listSimRuns(project, branch, limit = 20) {
   return all.filter((e) => e.project === project && e.branch === branch).slice(0, limit);
 }
 
+// Entries are stored newest-first (unshift), so the first entry seen per
+// testbench while scanning in order is its most recent recorded result.
+export async function getLatestStatusPerTestbench(project, branch) {
+  const all = await readJson(FILE, []);
+  const latest = {};
+  for (const e of all) {
+    if (e.project !== project || e.branch !== branch || !e.testbench) continue;
+    if (!(e.testbench in latest)) latest[e.testbench] = e.status;
+  }
+  return latest;
+}
+
 export async function logSimRun({ username, project, branch, testbench, status }) {
   const all = await readJson(FILE, []);
   all.unshift({

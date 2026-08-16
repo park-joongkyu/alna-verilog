@@ -21,6 +21,8 @@ import {
   unarchiveFile,
   exportBranch,
   runSimulation,
+  runSuite,
+  listFailingTestbenches,
   listHistory,
   listSimRuns,
   revertToCommit,
@@ -44,6 +46,13 @@ import { registerVerilogLanguage, VERILOG_LANGUAGE_ID, EDITOR_THEME_ID } from ".
 import "./App.css";
 
 const MAIN_BRANCH = "main";
+const SUITE_STATUS_CLASS = {
+  pass: "status-pass",
+  fail: "status-fail",
+  compile_error: "status-fail",
+  timeout: "status-fail",
+  unknown: "status-unknown",
+};
 
 export default function Workspace({
   currentUser,
@@ -62,6 +71,8 @@ export default function Workspace({
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
+  const [selectedTbs, setSelectedTbs] = useState(() => new Set());
+  const [suiteResults, setSuiteResults] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyFilter, setHistoryFilter] = useState({ since: "", until: "", file: "" });
   const [simRuns, setSimRuns] = useState([]);
@@ -73,11 +84,22 @@ export default function Workspace({
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef(null);
   const [llmCollapsed, setLlmCollapsed] = useState(() => localStorage.getItem("llmCollapsed") === "1");
+  const [branchSidebarCollapsed, setBranchSidebarCollapsed] = useState(
+    () => localStorage.getItem("branchSidebarCollapsed") === "1"
+  );
 
   const toggleLlmCollapsed = () => {
     setLlmCollapsed((v) => {
       const next = !v;
       localStorage.setItem("llmCollapsed", next ? "1" : "0");
+      return next;
+    });
+  };
+
+  const toggleBranchSidebarCollapsed = () => {
+    setBranchSidebarCollapsed((v) => {
+      const next = !v;
+      localStorage.setItem("branchSidebarCollapsed", next ? "1" : "0");
       return next;
     });
   };
@@ -96,6 +118,7 @@ export default function Workspace({
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 1200px)").matches);
   const saveTimer = useRef(null);
   const editorRef = useRef(null);
+  const openFileRequestRef = useRef(0);
 
   useEffect(() => {
     const mql = window.matchMedia("(max-width: 1200px)");
@@ -121,6 +144,18 @@ export default function Workspace({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // The very first time real content lands in the editor (e.g. opening the
+  // first file right after mount, before onMount's own layout() timer has
+  // anything to measure), Monaco's viewport can get stuck rendering zero
+  // lines even though the model itself holds the right text - it never
+  // re-measures on its own since the container's size never changed, only
+  // the content did. A forced layout() on every file switch fixes it.
+  useEffect(() => {
+    if (!activeName || !editorRef.current) return;
+    const t = setTimeout(() => editorRef.current?.layout(), 60);
+    return () => clearTimeout(t);
+  }, [activeName]);
+
   const isMain = currentBranch === MAIN_BRANCH;
   const currentBranchInfo = branches.find((b) => b.name === currentBranch);
   const isCollaboratorHere = Boolean(
@@ -133,6 +168,7 @@ export default function Workspace({
   const canRevert = isMain ? isAdmin : isOwner;
   const mobileSidebarTab = mobileView === "history" ? "history" : "files";
   const effectiveLlmCollapsed = llmCollapsed && !isNarrow;
+  const effectiveBranchSidebarCollapsed = branchSidebarCollapsed && !isNarrow;
 
   const activeKind = files.find((f) => f.name === activeName)?.kind ?? null;
 
@@ -183,8 +219,15 @@ export default function Workspace({
     [currentProject, currentBranch]
   );
 
+  // Guards against out-of-order responses: the initial mount always opens
+  // main's first file, and if the user switches branches before that
+  // request resolves, its response could otherwise land after (and clobber)
+  // the branch switch's own openFile result. Each call claims the latest
+  // request id and only applies its result if nothing newer has started.
   const openFile = async (name, branch) => {
+    const requestId = ++openFileRequestRef.current;
     const data = await getFile(currentProject, name, branch ?? currentBranch);
+    if (openFileRequestRef.current !== requestId) return;
     setActiveName(data.name);
     setContent(data.content);
     setDirty(false);
@@ -215,6 +258,7 @@ export default function Workspace({
     if (list.length > 0) {
       openFile(list[0].name, branch);
     } else {
+      openFileRequestRef.current += 1;
       setActiveName(null);
       setContent("");
     }
@@ -235,6 +279,25 @@ export default function Workspace({
     editor.revealLineInCenter(line);
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
+  };
+
+  const handleJumpToLine = async (fileName, line) => {
+    const reveal = () => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const maxLine = editor.getModel()?.getLineCount() ?? 1;
+      const target = Math.max(1, Math.min(maxLine, line));
+      editor.revealLineInCenter(target);
+      editor.setPosition({ lineNumber: target, column: 1 });
+      editor.focus();
+    };
+    if (fileName !== activeName) {
+      if (!files.some((f) => f.name === fileName)) return;
+      await openFile(fileName);
+      setTimeout(reveal, 60);
+    } else {
+      reveal();
+    }
   };
 
   const refreshProjectMembers = useCallback(async () => {
@@ -409,6 +472,7 @@ export default function Workspace({
     if (activeName === name) {
       if (list.length > 0) openFile(list[0].name);
       else {
+        openFileRequestRef.current += 1;
         setActiveName(null);
         setContent("");
       }
@@ -439,6 +503,7 @@ export default function Workspace({
       if (activeName === name) {
         if (list.length > 0) openFile(list[0].name);
         else {
+          openFileRequestRef.current += 1;
           setActiveName(null);
           setContent("");
         }
@@ -533,6 +598,55 @@ export default function Workspace({
     } finally {
       setRunning(false);
     }
+  };
+
+  const handleToggleTb = (name) => {
+    setSelectedTbs((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const handleRunSuite = async (tbNames) => {
+    if (!canSimulate || !tbNames || tbNames.length === 0) return;
+    if (dirty) await doSave(content);
+    setRunning(true);
+    setResult(null);
+    setSuiteResults(null);
+    try {
+      const results = await runSuite(currentProject, currentBranch, tbNames);
+      setSuiteResults(results);
+      refreshHistory();
+      refreshSimRuns();
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "스위트 실행 실패");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleRunAllTbs = () => {
+    const allTbs = files.filter((f) => f.kind === "testbench").map((f) => f.name);
+    handleRunSuite(allTbs);
+  };
+
+  const handleRerunFailing = async () => {
+    try {
+      const failing = await listFailingTestbenches(currentProject, currentBranch);
+      if (failing.length === 0) {
+        alert("최근에 실패로 기록된 테스트벤치가 없어요.");
+        return;
+      }
+      await handleRunSuite(failing);
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "실패 목록 조회 실패");
+    }
+  };
+
+  const handleViewSuiteResult = (r) => {
+    setResult(r);
   };
 
   const refreshAfterMerge = async (target) => {
@@ -640,6 +754,11 @@ export default function Workspace({
       archivedFiles={archivedFiles}
       onArchive={canEdit ? handleArchive : null}
       onUnarchive={canEdit ? handleUnarchive : null}
+      selectedTbs={selectedTbs}
+      onToggleTb={canSimulate ? handleToggleTb : null}
+      onRunSuite={canSimulate ? handleRunSuite : null}
+      onRunAllTbs={canSimulate ? handleRunAllTbs : null}
+      onRerunFailing={canSimulate ? handleRerunFailing : null}
     />
   );
 
@@ -674,7 +793,23 @@ export default function Workspace({
         </button>
       </div>
 
-      <aside className={`branch-sidebar ${mobileView === "branches" ? "mobile-active" : ""}`}>
+      <aside
+        className={`branch-sidebar ${mobileView === "branches" ? "mobile-active" : ""} ${
+          effectiveBranchSidebarCollapsed ? "branch-sidebar-collapsed" : ""
+        }`}
+      >
+        {!isNarrow && (
+          <button
+            type="button"
+            className="branch-collapse-btn"
+            title={effectiveBranchSidebarCollapsed ? "브랜치 패널 펼치기" : "브랜치 패널 접기"}
+            onClick={toggleBranchSidebarCollapsed}
+          >
+            {effectiveBranchSidebarCollapsed ? "›" : "‹ 접기"}
+          </button>
+        )}
+        {!effectiveBranchSidebarCollapsed && (
+          <>
         <div className="sidebar-account-bar">
           <div className="sidebar-account-name-row">
             <span className="current-user">{currentUserName ?? currentUser}</span>
@@ -764,6 +899,8 @@ export default function Workspace({
             </div>
           )}
         </div>
+          </>
+        )}
       </aside>
 
       <aside className={`sidebar ${mobileView === "files" || mobileView === "history" ? "mobile-active" : ""}`}>
@@ -835,8 +972,27 @@ export default function Workspace({
           />
         </div>
 
+        {suiteResults && (
+          <div className="suite-results">
+            <div className="suite-results-header">
+              <span>
+                스위트 결과 — {suiteResults.filter((r) => r.status === "pass").length}/{suiteResults.length} PASS
+              </span>
+              <button className="log-copy-btn" onClick={() => setSuiteResults(null)}>닫기</button>
+            </div>
+            <ul>
+              {suiteResults.map((r) => (
+                <li key={r.testbench} onClick={() => handleViewSuiteResult(r)}>
+                  <span className={`status-pill ${SUITE_STATUS_CLASS[r.status] ?? ""}`}>{r.status}</span>
+                  <span className="suite-result-name">{r.testbench}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="log-wrap">
-          <LogPanel running={running} result={result} />
+          <LogPanel running={running} result={result} onJumpToLine={handleJumpToLine} />
         </div>
       </main>
 

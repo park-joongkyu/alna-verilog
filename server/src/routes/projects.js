@@ -3,12 +3,14 @@ import {
   listProjectsFor,
   getProject,
   createProject,
+  deleteProject,
   addMember,
   removeMember,
   canAccessProject,
 } from "../lib/projects.js";
 import { isValidProjectId } from "../lib/workspace.js";
 import { isAdmin, findUser, getDisplayName } from "../lib/users.js";
+import { logAudit } from "../lib/auditLog.js";
 
 const router = Router();
 
@@ -43,6 +45,18 @@ router.post("/", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message || "프로젝트 생성 실패" });
   }
+});
+
+router.delete("/:id", async (req, res) => {
+  const { id } = req.params;
+  const project = await getProject(id);
+  if (!project) return res.status(404).json({ error: "프로젝트를 찾을 수 없습니다" });
+  if (!(await isAdmin(req.user.username))) {
+    return res.status(403).json({ error: "프로젝트 삭제는 관리자만 할 수 있습니다" });
+  }
+  await deleteProject(id);
+  logAudit({ username: req.user.username, action: "project_delete", project: id }).catch(() => {});
+  res.json({ ok: true });
 });
 
 router.post("/:id/members", async (req, res) => {

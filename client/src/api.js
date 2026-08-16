@@ -41,6 +41,8 @@ export const listProjects = () => api.get("/projects").then((r) => r.data.projec
 
 export const createProject = (id, name) => api.post("/projects", { id, name }).then((r) => r.data.project);
 
+export const deleteProject = (id) => api.delete(`/projects/${encodeURIComponent(id)}`).then((r) => r.data);
+
 export const addProjectMember = (id, username) =>
   api.post(`/projects/${encodeURIComponent(id)}/members`, { username }).then((r) => r.data.project);
 
@@ -81,6 +83,14 @@ export const runSimulation = (project, branch, files, options) =>
   api
     .post("/simulate", { project, branch, ...(files ? { files } : {}), ...(options?.compileOnly ? { compileOnly: true } : {}) })
     .then((r) => r.data);
+
+export const runSuite = (project, branch, testbenches) =>
+  api
+    .post("/simulate/suite", { project, branch, ...(testbenches ? { testbenches } : {}) })
+    .then((r) => r.data.results);
+
+export const listFailingTestbenches = (project, branch) =>
+  api.get("/simulate/failing", { params: { project, branch } }).then((r) => r.data.testbenches);
 
 export const listSimRuns = (project, branch, limit) =>
   api.get("/simulate/history", { params: { project, branch, limit } }).then((r) => r.data.runs);
