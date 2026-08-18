@@ -1,4 +1,4 @@
-import { simpleGit } from "simple-git";
+import { simpleGit, CheckRepoActions } from "simple-git";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { workspaceDir, branchesRoot, MAIN_BRANCH } from "./workspace.js";
@@ -14,7 +14,7 @@ export async function ensureMainRepo(project) {
   const dir = workspaceDir(project);
   await fs.mkdir(dir, { recursive: true });
   const git = client(dir);
-  const isRepo = await git.checkIsRepo();
+  const isRepo = await git.checkIsRepo(CheckRepoActions.IS_REPO_ROOT);
   if (!isRepo) {
     await git.init(["--initial-branch=main"]);
   }
@@ -56,6 +56,18 @@ export async function commitIfChanged(dir, fileNames, message) {
 export async function renameFile(dir, oldName, newName, message) {
   const git = client(dir);
   await git.mv(oldName, newName);
+  const result = await git.commit(message);
+  return result.commit;
+}
+
+/**
+ * Renames multiple files (each [oldName, newName] pair) in one commit.
+ */
+export async function renameFiles(dir, pairs, message) {
+  const git = client(dir);
+  for (const [oldName, newName] of pairs) {
+    await git.mv(oldName, newName);
+  }
   const result = await git.commit(message);
   return result.commit;
 }

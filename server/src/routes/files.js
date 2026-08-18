@@ -2,8 +2,9 @@ import { Router } from "express";
 import fs from "node:fs/promises";
 import path from "node:path";
 import archiver from "archiver";
-import { isValidFileName, safeFilePath, resolveBranch, MAIN_BRANCH, isTestbenchName } from "../lib/workspace.js";
-import { commitIfChanged, renameFile } from "../lib/git.js";
+import { isValidFileName, safeFilePath, resolveBranch, MAIN_BRANCH, isTestbenchName, isSourceFileName } from "../lib/workspace.js";
+import { buildHierarchy } from "../lib/hierarchy.js";
+import { commitIfChanged, renameFile, renameFiles } from "../lib/git.js";
 import { isOwner } from "../lib/branchOwners.js";
 import { isAdmin, getDisplayName } from "../lib/users.js";
 import { canAccessProject } from "../lib/projects.js";
@@ -22,6 +23,7 @@ const BRAM_STUB_RE = /_\d+x\d+\.v$/i;
 
 function classify(name) {
   if (isTestbenchName(name)) return "testbench";
+  if (name.endsWith(".vh")) return "header";
   if (BRAM_STUB_RE.test(name)) return "bram";
   return "rtl";
 }
@@ -44,7 +46,7 @@ router.get("/", async (req, res) => {
   if (!(await assertProjectAccess(resolved, req, res))) return;
   const entries = await fs.readdir(resolved.dir, { withFileTypes: true });
   const files = entries
-    .filter((e) => e.isFile() && e.name.endsWith(".v"))
+    .filter((e) => e.isFile() && isSourceFileName(e.name))
     .map((e) => ({
       name: e.name,
       kind: classify(e.name),
@@ -58,7 +60,7 @@ router.get("/export", async (req, res) => {
   if (!resolved) return;
   if (!(await assertProjectAccess(resolved, req, res))) return;
   const entries = await fs.readdir(resolved.dir, { withFileTypes: true });
-  const names = entries.filter((e) => e.isFile() && e.name.endsWith(".v")).map((e) => e.name);
+  const names = entries.filter((e) => e.isFile() && isSourceFileName(e.name)).map((e) => e.name);
 
   res.setHeader("Content-Type", "application/zip");
   res.setHeader("Content-Disposition", `attachment; filename="${resolved.project}-${resolved.branch}.zip"`);
@@ -86,10 +88,23 @@ router.get("/archived", async (req, res) => {
     entries = [];
   }
   const files = entries
-    .filter((e) => e.isFile() && e.name.endsWith(".v"))
+    .filter((e) => e.isFile() && isSourceFileName(e.name))
     .map((e) => ({ name: e.name, kind: classify(e.name) }))
     .sort((a, b) => a.name.localeCompare(b.name));
   res.json({ files });
+});
+
+router.get("/hierarchy", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  const entries = await fs.readdir(resolved.dir, { withFileTypes: true });
+  const rtlEntries = entries.filter((e) => e.isFile() && isSourceFileName(e.name) && classify(e.name) !== "testbench" && classify(e.name) !== "header");
+  const files = await Promise.all(
+    rtlEntries.map(async (e) => ({ name: e.name, content: await fs.readFile(path.join(resolved.dir, e.name), "utf-8") }))
+  );
+  const tree = buildHierarchy(files);
+  res.json({ tree });
 });
 
 router.get("/:name", async (req, res) => {
@@ -229,6 +244,45 @@ router.post("/:name/archive", async (req, res) => {
   res.json({ ok: true, commit });
 });
 
+router.post("/archive-bulk", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  if (!(await assertCanWrite(resolved.project, resolved.branch, req, res))) return;
+  const { names } = req.body || {};
+  if (!Array.isArray(names) || names.length === 0 || !names.every(isValidFileName)) {
+    return res.status(400).json({ error: "보관할 파일 목록이 올바르지 않습니다" });
+  }
+  await fs.mkdir(path.join(resolved.dir, "archived"), { recursive: true });
+  const archived = [];
+  const pairs = [];
+  for (const name of names) {
+    const srcPath = safeFilePath(resolved.dir, name);
+    if (!srcPath) continue;
+    try {
+      await fs.access(srcPath);
+      pairs.push([name, `archived/${name}`]);
+      archived.push(name);
+    } catch {
+      // already gone / not found, skip
+    }
+  }
+  if (archived.length > 0) {
+    const actorName = await getDisplayName(req.user.username);
+    await renameFiles(resolved.dir, pairs, `일괄 보관: ${archived.join(", ")} (by ${actorName})`);
+    for (const name of archived) {
+      await logAudit({
+        username: req.user.username,
+        action: "file_archive",
+        project: resolved.project,
+        branch: resolved.branch,
+        file: name,
+      }).catch(() => {});
+    }
+  }
+  res.json({ ok: true, archived });
+});
+
 router.post("/:name/unarchive", async (req, res) => {
   const resolved = await resolveBranch(req, res);
   if (!resolved) return;
@@ -262,6 +316,71 @@ router.post("/:name/unarchive", async (req, res) => {
   res.json({ ok: true, commit });
 });
 
+router.delete("/:name/archived", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  if (!(await assertCanWrite(resolved.project, resolved.branch, req, res))) return;
+  const name = req.params.name;
+  const archivedPath = safeFilePath(path.join(resolved.dir, "archived"), name);
+  if (!archivedPath) return res.status(400).json({ error: "invalid file name" });
+  try {
+    await fs.unlink(archivedPath);
+    const actorName = await getDisplayName(req.user.username);
+    await commitIfChanged(resolved.dir, [`archived/${name}`], `보관함에서 영구 삭제: ${name} (by ${actorName})`);
+    logAudit({
+      username: req.user.username,
+      action: "archived_file_delete",
+      project: resolved.project,
+      branch: resolved.branch,
+      file: name,
+    }).catch(() => {});
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ error: "archived file not found" });
+  }
+});
+
+router.post("/delete-bulk-archived", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  if (!(await assertCanWrite(resolved.project, resolved.branch, req, res))) return;
+  const { names } = req.body || {};
+  if (!Array.isArray(names) || names.length === 0 || !names.every(isValidFileName)) {
+    return res.status(400).json({ error: "삭제할 파일 목록이 올바르지 않습니다" });
+  }
+  const deleted = [];
+  for (const name of names) {
+    const archivedPath = safeFilePath(path.join(resolved.dir, "archived"), name);
+    if (!archivedPath) continue;
+    try {
+      await fs.unlink(archivedPath);
+      deleted.push(name);
+    } catch {
+      // already gone, skip
+    }
+  }
+  if (deleted.length > 0) {
+    const actorName = await getDisplayName(req.user.username);
+    await commitIfChanged(
+      resolved.dir,
+      deleted.map((n) => `archived/${n}`),
+      `보관함에서 일괄 영구 삭제: ${deleted.join(", ")} (by ${actorName})`
+    );
+    for (const name of deleted) {
+      await logAudit({
+        username: req.user.username,
+        action: "archived_file_delete",
+        project: resolved.project,
+        branch: resolved.branch,
+        file: name,
+      }).catch(() => {});
+    }
+  }
+  res.json({ ok: true, deleted });
+});
+
 router.delete("/:name", async (req, res) => {
   const resolved = await resolveBranch(req, res);
   if (!resolved) return;
@@ -284,6 +403,42 @@ router.delete("/:name", async (req, res) => {
   } catch {
     res.status(404).json({ error: "file not found" });
   }
+});
+
+router.post("/delete-bulk", async (req, res) => {
+  const resolved = await resolveBranch(req, res);
+  if (!resolved) return;
+  if (!(await assertProjectAccess(resolved, req, res))) return;
+  if (!(await assertCanWrite(resolved.project, resolved.branch, req, res))) return;
+  const { names } = req.body || {};
+  if (!Array.isArray(names) || names.length === 0 || !names.every(isValidFileName)) {
+    return res.status(400).json({ error: "삭제할 파일 목록이 올바르지 않습니다" });
+  }
+  const deleted = [];
+  for (const name of names) {
+    const filePath = safeFilePath(resolved.dir, name);
+    if (!filePath) continue;
+    try {
+      await fs.unlink(filePath);
+      deleted.push(name);
+    } catch {
+      // already gone, skip
+    }
+  }
+  if (deleted.length > 0) {
+    const actorName = await getDisplayName(req.user.username);
+    await commitIfChanged(resolved.dir, deleted, `일괄 삭제: ${deleted.join(", ")} (by ${actorName})`);
+    for (const name of deleted) {
+      await logAudit({
+        username: req.user.username,
+        action: "file_delete",
+        project: resolved.project,
+        branch: resolved.branch,
+        file: name,
+      }).catch(() => {});
+    }
+  }
+  res.json({ ok: true, deleted });
 });
 
 export default router;

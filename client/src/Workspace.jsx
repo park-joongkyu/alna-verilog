@@ -15,10 +15,15 @@ import {
   saveFile,
   createFile,
   deleteFile,
+  deleteFilesBulk,
   renameFile,
   listArchivedFiles,
+  getFileHierarchy,
   archiveFile,
+  archiveFilesBulk,
   unarchiveFile,
+  deleteArchivedFile,
+  deleteArchivedFilesBulk,
   exportBranch,
   runSimulation,
   runSuite,
@@ -65,6 +70,7 @@ export default function Workspace({
 }) {
   const [files, setFiles] = useState([]);
   const [archivedFiles, setArchivedFiles] = useState([]);
+  const [hierarchy, setHierarchy] = useState(null);
   const [activeName, setActiveName] = useState(null);
   const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -116,6 +122,7 @@ export default function Workspace({
   const [showAdmin, setShowAdmin] = useState(false);
   const [mobileView, setMobileView] = useState("editor"); // files | editor | llm
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 1200px)").matches);
+  const [desktopSidebarView, setDesktopSidebarView] = useState("files"); // files | history (desktop only)
   const saveTimer = useRef(null);
   const editorRef = useRef(null);
   const openFileRequestRef = useRef(0);
@@ -178,13 +185,26 @@ export default function Workspace({
     return list;
   }, [currentProject]);
 
+  const loadHierarchy = useCallback(
+    async (branch) => {
+      try {
+        const tree = await getFileHierarchy(currentProject, branch ?? currentBranch);
+        setHierarchy(tree);
+      } catch {
+        setHierarchy(null);
+      }
+    },
+    [currentProject, currentBranch]
+  );
+
   const refreshFiles = useCallback(
     async (branch) => {
       const list = await listFiles(currentProject, branch ?? currentBranch);
       setFiles(list);
+      loadHierarchy(branch);
       return list;
     },
-    [currentProject, currentBranch]
+    [currentProject, currentBranch, loadHierarchy]
   );
 
   const refreshArchivedFiles = useCallback(
@@ -239,6 +259,7 @@ export default function Workspace({
       if (list.length > 0) openFile(list[0].name, MAIN_BRANCH);
     });
     refreshArchivedFiles(MAIN_BRANCH);
+    setHierarchy(null);
     refreshHistory(undefined, MAIN_BRANCH);
     refreshSimRuns(MAIN_BRANCH);
     mergeStatus(currentProject, MAIN_BRANCH).then((s) => {
@@ -251,6 +272,7 @@ export default function Workspace({
     if (branch === currentBranch) return;
     setCurrentBranch(branch);
     setResult(null);
+    setHierarchy(null);
     const list = await refreshFiles(branch);
     refreshArchivedFiles(branch);
     await refreshHistory(historyFilter, branch);
@@ -431,9 +453,11 @@ export default function Workspace({
     }
   };
 
+  const withDefaultExt = (name) => (/\.(v|vh)$/i.test(name) ? name : `${name}.v`);
+
   const handleCreate = async (name) => {
     if (!canEdit) return;
-    const finalName = name.endsWith(".v") ? name : `${name}.v`;
+    const finalName = withDefaultExt(name);
     try {
       await createFile(currentProject, finalName, "", currentBranch);
       const list = await refreshFiles();
@@ -444,23 +468,33 @@ export default function Workspace({
     }
   };
 
-  const handleUploadFile = async (file) => {
+  const handleUploadFiles = async (fileList) => {
     if (!canEdit) return;
-    try {
-      const text = await file.text();
-      const exists = files.some((f) => f.name === file.name);
-      if (exists && !window.confirm(`${file.name} 파일이 이미 있습니다. 덮어쓸까요?`)) return;
-      if (exists) {
-        await saveFile(currentProject, file.name, text, currentBranch, `업로드: ${file.name}`);
-      } else {
-        await createFile(currentProject, file.name, text, currentBranch, `업로드: ${file.name}`);
-        await refreshFiles();
+    const uploads = Array.from(fileList);
+    if (uploads.length === 0) return;
+    let knownNames = files.map((f) => f.name);
+    let lastName = null;
+    const errors = [];
+    for (const file of uploads) {
+      try {
+        const text = await file.text();
+        const exists = knownNames.includes(file.name);
+        if (exists && !window.confirm(`${file.name} 파일이 이미 있습니다. 덮어쓸까요?`)) continue;
+        if (exists) {
+          await saveFile(currentProject, file.name, text, currentBranch, `업로드: ${file.name}`);
+        } else {
+          await createFile(currentProject, file.name, text, currentBranch, `업로드: ${file.name}`);
+          knownNames = [...knownNames, file.name];
+        }
+        lastName = file.name;
+      } catch (e) {
+        errors.push(`${file.name}: ${e?.response?.data?.error ?? "실패"}`);
       }
-      await refreshHistory();
-      openFile(file.name);
-    } catch (e) {
-      alert(e?.response?.data?.error ?? "파일 업로드 실패");
     }
+    await refreshFiles();
+    await refreshHistory();
+    if (lastName) openFile(lastName);
+    if (errors.length > 0) alert(`일부 파일 업로드 실패:\n${errors.join("\n")}`);
   };
 
   const handleDelete = async (name) => {
@@ -479,9 +513,52 @@ export default function Workspace({
     }
   };
 
+  const handleDeleteBulk = async (names) => {
+    if (!canEdit || !names?.length) return;
+    try {
+      const result = await deleteFilesBulk(currentProject, names, currentBranch);
+      const list = await refreshFiles();
+      await refreshHistory();
+      if (activeName && names.includes(activeName)) {
+        if (list.length > 0) openFile(list[0].name);
+        else {
+          openFileRequestRef.current += 1;
+          setActiveName(null);
+          setContent("");
+        }
+      }
+      return result;
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "일괄 삭제 실패");
+      throw e;
+    }
+  };
+
+  const handleArchiveBulk = async (names) => {
+    if (!canEdit || !names?.length) return;
+    try {
+      const result = await archiveFilesBulk(currentProject, names, currentBranch);
+      const list = await refreshFiles();
+      await refreshArchivedFiles();
+      await refreshHistory();
+      if (activeName && names.includes(activeName)) {
+        if (list.length > 0) openFile(list[0].name);
+        else {
+          openFileRequestRef.current += 1;
+          setActiveName(null);
+          setContent("");
+        }
+      }
+      return result;
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "일괄 보관 실패");
+      throw e;
+    }
+  };
+
   const handleRename = async (oldName, newName) => {
     if (!canEdit) return;
-    const finalNewName = newName.endsWith(".v") ? newName : `${newName}.v`;
+    const finalNewName = withDefaultExt(newName);
     try {
       await renameFile(currentProject, oldName, finalNewName, currentBranch);
       await refreshFiles();
@@ -522,6 +599,31 @@ export default function Workspace({
       await refreshHistory();
     } catch (e) {
       alert(e?.response?.data?.error ?? "보관 해제 실패");
+    }
+  };
+
+  const handleDeleteArchived = async (name) => {
+    if (!canEdit) return;
+    if (!window.confirm(`보관된 "${name}" 파일을 완전히 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
+    try {
+      await deleteArchivedFile(currentProject, name, currentBranch);
+      await refreshArchivedFiles();
+      await refreshHistory();
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "삭제 실패");
+    }
+  };
+
+  const handleDeleteArchivedBulk = async (names) => {
+    if (!canEdit || !names?.length) return;
+    try {
+      const result = await deleteArchivedFilesBulk(currentProject, names, currentBranch);
+      await refreshArchivedFiles();
+      await refreshHistory();
+      return result;
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "일괄 삭제 실패");
+      throw e;
     }
   };
 
@@ -744,8 +846,10 @@ export default function Workspace({
       activeName={activeName}
       onSelect={handleSelect}
       onCreate={canEdit ? handleCreate : null}
-      onUpload={canEdit ? handleUploadFile : null}
+      onUpload={canEdit ? handleUploadFiles : null}
       onDelete={canEdit ? handleDelete : null}
+      onDeleteBulk={canEdit ? handleDeleteBulk : null}
+      onArchiveBulk={canEdit ? handleArchiveBulk : null}
       onRename={canEdit ? handleRename : null}
       onExport={handleExport}
       onRunTestbench={canSimulate ? handleRun : null}
@@ -754,11 +858,15 @@ export default function Workspace({
       archivedFiles={archivedFiles}
       onArchive={canEdit ? handleArchive : null}
       onUnarchive={canEdit ? handleUnarchive : null}
+      onDeleteArchived={canEdit ? handleDeleteArchived : null}
+      onDeleteArchivedBulk={canEdit ? handleDeleteArchivedBulk : null}
       selectedTbs={selectedTbs}
       onToggleTb={canSimulate ? handleToggleTb : null}
       onRunSuite={canSimulate ? handleRunSuite : null}
       onRunAllTbs={canSimulate ? handleRunAllTbs : null}
       onRerunFailing={canSimulate ? handleRerunFailing : null}
+      hierarchy={hierarchy}
+      onShowHistory={!isNarrow ? () => setDesktopSidebarView("history") : null}
     />
   );
 
@@ -770,6 +878,7 @@ export default function Workspace({
       filter={historyFilter}
       onFilterChange={handleHistoryFilterChange}
       simRuns={simRuns}
+      onShowFiles={!isNarrow ? () => setDesktopSidebarView("files") : null}
     />
   );
 
@@ -907,10 +1016,9 @@ export default function Workspace({
         {isNarrow ? (
           mobileSidebarTab === "files" ? fileListPanel : historyPanel
         ) : (
-          <>
-            <div className="sidebar-pane sidebar-pane-files">{fileListPanel}</div>
-            <div className="sidebar-pane sidebar-pane-history">{historyPanel}</div>
-          </>
+          <div className="sidebar-pane">
+            {desktopSidebarView === "files" ? fileListPanel : historyPanel}
+          </div>
         )}
       </aside>
 

@@ -46,7 +46,7 @@ ${note ? `\n참고 사항:\n${note}\n` : ""}
 (병합된 파일 전체 내용)`;
 }
 
-const FILE_MARKER = /^###\s*FILE:\s*(\S+\.v)\s*$/gm;
+const FILE_MARKER = /^###\s*FILE:\s*(\S+\.(?:v|vh))\s*$/gm;
 
 export function stripCodeFence(text) {
   return text

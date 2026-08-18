@@ -16,6 +16,7 @@ import { requireAuth } from "../middleware/requireAuth.js";
 import { createResetToken, consumeResetToken } from "../lib/resetTokens.js";
 import { sendPasswordResetEmail, isMailConfigured } from "../lib/mailer.js";
 import { logAccess } from "../lib/accessLog.js";
+import { getInviteCode } from "../lib/settings.js";
 
 const router = Router();
 
@@ -33,7 +34,8 @@ router.post("/register", async (req, res) => {
   if (!isValidName(name)) {
     return res.status(400).json({ error: "이름을 입력하세요" });
   }
-  if (typeof inviteCode !== "string" || inviteCode !== process.env.REGISTER_INVITE_CODE) {
+  const currentInviteCode = await getInviteCode();
+  if (typeof inviteCode !== "string" || !currentInviteCode || inviteCode !== currentInviteCode) {
     return res.status(403).json({ error: "접속 코드가 올바르지 않습니다" });
   }
   try {

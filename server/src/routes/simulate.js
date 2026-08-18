@@ -1,6 +1,6 @@
 import { Router } from "express";
 import fs from "node:fs/promises";
-import { isValidFileName, resolveBranch, MAIN_BRANCH, isTestbenchName } from "../lib/workspace.js";
+import { isValidFileName, resolveBranch, MAIN_BRANCH, isTestbenchName, isSourceFileName } from "../lib/workspace.js";
 import { runSimulation } from "../lib/iverilog.js";
 import { attachNoteToHead } from "../lib/git.js";
 import { isOwner } from "../lib/branchOwners.js";
@@ -49,7 +49,7 @@ router.post("/suite", async (req, res) => {
   }
 
   const entries = await fs.readdir(resolved.dir, { withFileTypes: true });
-  const allFiles = entries.filter((e) => e.isFile() && e.name.endsWith(".v")).map((e) => e.name);
+  const allFiles = entries.filter((e) => e.isFile() && isSourceFileName(e.name)).map((e) => e.name);
   const allTestbenches = allFiles.filter(isTestbenchName);
   const rtlNames = allFiles.filter((n) => !isTestbenchName(n));
 
@@ -96,7 +96,7 @@ router.post("/", async (req, res) => {
 
   if (!files) {
     const entries = await fs.readdir(resolved.dir, { withFileTypes: true });
-    files = entries.filter((e) => e.isFile() && e.name.endsWith(".v")).map((e) => e.name);
+    files = entries.filter((e) => e.isFile() && isSourceFileName(e.name)).map((e) => e.name);
   }
 
   if (!Array.isArray(files) || files.length === 0) {

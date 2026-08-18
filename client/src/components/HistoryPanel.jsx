@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 const STATUS_LABEL = {
   pass: { text: "PASS", className: "status-pass" },
   fail: { text: "FAIL", className: "status-fail" },
@@ -11,33 +13,49 @@ function formatDate(iso) {
   return d.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-export default function HistoryPanel({ entries, files, onRevert, filter, onFilterChange, simRuns }) {
+export default function HistoryPanel({ entries, files, onRevert, filter, onFilterChange, simRuns, onShowFiles }) {
   const hasFilter = filter?.since || filter?.until || filter?.file;
   const fileFilterActive = Boolean(filter?.file);
+  const [simRunsOpen, setSimRunsOpen] = useState(false);
 
   return (
     <div className="history-panel">
       <div className="file-list-header">
-        <span>커밋 이력</span>
+        <div className="file-list-header-title">
+          <span>히스토리</span>
+          {onShowFiles && (
+            <button className="sidebar-view-toggle-btn" onClick={onShowFiles}>
+              히스토리 ON
+            </button>
+          )}
+        </div>
       </div>
 
       {simRuns && simRuns.length > 0 && (
-        <details className="sim-run-history">
-          <summary>▸ 최근 시뮬레이션 실행 ({simRuns.length})</summary>
-          <ul className="sim-run-list">
-            {simRuns.map((r, i) => (
-              <li key={i} className="sim-run-item">
-                <div className="sim-run-item-top">
-                  <span className={`status-pill ${STATUS_LABEL[r.status]?.className ?? ""}`}>
-                    {STATUS_LABEL[r.status]?.text ?? r.status}
-                  </span>
-                  <span className="sim-run-tb" title={r.testbench ?? ""}>{r.testbench ?? "(알 수 없음)"}</span>
-                </div>
-                <div className="sim-run-meta">{formatDate(r.at)} · {r.username}</div>
-              </li>
-            ))}
-          </ul>
-        </details>
+        <div className="sim-run-history">
+          <button
+            type="button"
+            className="archived-files-toggle"
+            onClick={() => setSimRunsOpen((v) => !v)}
+          >
+            {simRunsOpen ? "▾" : "▸"} 최근 시뮬레이션 실행 ({simRuns.length})
+          </button>
+          {simRunsOpen && (
+            <ul className="sim-run-list">
+              {simRuns.map((r, i) => (
+                <li key={i} className="sim-run-item">
+                  <div className="sim-run-item-top">
+                    <span className={`status-pill ${STATUS_LABEL[r.status]?.className ?? ""}`}>
+                      {STATUS_LABEL[r.status]?.text ?? r.status}
+                    </span>
+                    <span className="sim-run-tb" title={r.testbench ?? ""}>{r.testbench ?? "(알 수 없음)"}</span>
+                  </div>
+                  <div className="sim-run-meta">{formatDate(r.at)} · {r.username}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       <div className="history-filter">

@@ -6,12 +6,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECTS_ROOT = path.resolve(__dirname, "..", "..", "projects");
 export const MAIN_BRANCH = "main";
 
-const VALID_NAME = /^[A-Za-z0-9_\-]+\.v$/;
+const VALID_NAME = /^[A-Za-z0-9_\-]+\.(v|vh)$/;
 const VALID_BRANCH_NAME = /^[A-Za-z0-9_-]+$/;
 const VALID_PROJECT_ID = /^[A-Za-z0-9_-]+$/;
 
 export function isValidFileName(name) {
   return typeof name === "string" && VALID_NAME.test(name);
+}
+
+// .v and .vh are both plain Verilog source to Icarus Verilog (it doesn't
+// gate behavior by extension) - .vh is just the convention for headers
+// pulled in via `include`, so it's listed/simulated the same as .v.
+export function isSourceFileName(name) {
+  return typeof name === "string" && (name.endsWith(".v") || name.endsWith(".vh"));
 }
 
 export function isValidBranchName(name) {

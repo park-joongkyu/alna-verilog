@@ -64,17 +64,32 @@ export const createFile = (project, name, content = "", branch, commitMessage) =
 export const deleteFile = (project, name, branch) =>
   api.delete(`/files/${encodeURIComponent(name)}`, { params: { project, branch } }).then((r) => r.data);
 
+export const deleteFilesBulk = (project, names, branch) =>
+  api.post("/files/delete-bulk", { project, branch, names }).then((r) => r.data);
+
 export const renameFile = (project, name, newName, branch) =>
   api.post(`/files/${encodeURIComponent(name)}/rename`, { project, newName, branch }).then((r) => r.data);
 
 export const listArchivedFiles = (project, branch) =>
   api.get("/files/archived", { params: { project, branch } }).then((r) => r.data.files);
 
+export const getFileHierarchy = (project, branch) =>
+  api.get("/files/hierarchy", { params: { project, branch } }).then((r) => r.data.tree);
+
 export const archiveFile = (project, name, branch) =>
   api.post(`/files/${encodeURIComponent(name)}/archive`, { project, branch }).then((r) => r.data);
 
+export const archiveFilesBulk = (project, names, branch) =>
+  api.post("/files/archive-bulk", { project, branch, names }).then((r) => r.data);
+
 export const unarchiveFile = (project, name, branch) =>
   api.post(`/files/${encodeURIComponent(name)}/unarchive`, { project, branch }).then((r) => r.data);
+
+export const deleteArchivedFile = (project, name, branch) =>
+  api.delete(`/files/${encodeURIComponent(name)}/archived`, { params: { project, branch } }).then((r) => r.data);
+
+export const deleteArchivedFilesBulk = (project, names, branch) =>
+  api.post("/files/delete-bulk-archived", { project, branch, names }).then((r) => r.data);
 
 export const exportBranch = (project, branch) =>
   api.get("/files/export", { params: { project, branch }, responseType: "blob" }).then((r) => r.data);
@@ -146,6 +161,13 @@ export const adminResetPassword = (username, newPassword) =>
   api.post(`/admin/users/${encodeURIComponent(username)}/reset-password`, { newPassword }).then((r) => r.data);
 
 export const adminListAccessLog = () => api.get("/admin/access-log").then((r) => r.data.entries);
+
+export const adminGetPresence = () => api.get("/admin/presence").then((r) => r.data);
+
+export const adminGetInviteCode = () => api.get("/admin/invite-code").then((r) => r.data.inviteCode);
+
+export const adminSetInviteCode = (inviteCode) =>
+  api.post("/admin/invite-code", { inviteCode }).then((r) => r.data);
 
 export const adminListAuditLog = () => api.get("/admin/audit-log").then((r) => r.data.entries);
 

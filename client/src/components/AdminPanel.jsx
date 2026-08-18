@@ -7,6 +7,9 @@ import {
   setFeedbackStatus,
   adminListAccessLog,
   adminListAuditLog,
+  adminGetPresence,
+  adminGetInviteCode,
+  adminSetInviteCode,
 } from "../api";
 
 const CATEGORY_LABEL = { bug: "버그", suggestion: "제안", other: "기타" };
@@ -17,7 +20,9 @@ const AUDIT_ACTION_LABEL = {
   file_rename: "파일 이름 변경",
   file_archive: "파일 보관",
   file_unarchive: "파일 보관 해제",
+  archived_file_delete: "보관함에서 영구 삭제",
   project_delete: "프로젝트 삭제",
+  invite_code_change: "접속 코드 변경",
   revert: "되돌리기",
   branch_delete: "브랜치 삭제",
   merge: "병합",
@@ -31,6 +36,8 @@ export default function AdminPanel({ onClose }) {
   const [auditLog, setAuditLog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [presence, setPresence] = useState({ online: [], totalUsers: 0 });
+  const [inviteCode, setInviteCode] = useState(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -56,6 +63,34 @@ export default function AdminPanel({ onClose }) {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  useEffect(() => {
+    const refreshPresence = () => {
+      adminGetPresence()
+        .then(setPresence)
+        .catch(() => {});
+    };
+    refreshPresence();
+    const timer = setInterval(refreshPresence, 20000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    adminGetInviteCode()
+      .then(setInviteCode)
+      .catch(() => {});
+  }, []);
+
+  const handleChangeInviteCode = async () => {
+    const next = window.prompt("새 접속(가입) 코드를 입력하세요", inviteCode ?? "");
+    if (!next || !next.trim()) return;
+    try {
+      await adminSetInviteCode(next.trim());
+      setInviteCode(next.trim());
+    } catch (e) {
+      alert(e?.response?.data?.error ?? "변경 실패");
+    }
+  };
 
   const handleReset = async (username) => {
     const newPassword = window.prompt(`${username}님의 새 비밀번호를 입력하세요 (4자 이상)`);
@@ -93,6 +128,23 @@ export default function AdminPanel({ onClose }) {
         <div className="merge-modal-header">
           <h3>관리자</h3>
           <button className="llm-submit secondary" onClick={onClose}>닫기</button>
+        </div>
+
+        <div className="admin-presence-bar">
+          <span>전체 사용자 {presence.totalUsers}명</span>
+          <span className="admin-presence-online">
+            <span className="admin-presence-dot" /> 지금 접속 중 {presence.online.length}명
+            {presence.online.length > 0 && (
+              <span className="admin-presence-names">
+                {" "}
+                ({presence.online.map((o) => o.name).join(", ")})
+              </span>
+            )}
+          </span>
+          <span className="admin-invite-code">
+            가입 코드: <code>{inviteCode ?? "-"}</code>
+            <button className="claim-btn" onClick={handleChangeInviteCode}>변경</button>
+          </span>
         </div>
 
         <div className="sidebar-tabs">

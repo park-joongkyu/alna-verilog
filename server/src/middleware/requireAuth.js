@@ -1,4 +1,5 @@
 import { verifyToken } from "../lib/auth.js";
+import { touch } from "../lib/presence.js";
 
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || "";
@@ -9,5 +10,6 @@ export async function requireAuth(req, res, next) {
   if (!user) return res.status(401).json({ error: "세션이 만료됐습니다. 다시 로그인해주세요" });
 
   req.user = user;
+  touch(user.username);
   next();
 }

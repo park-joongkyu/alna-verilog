@@ -4,7 +4,7 @@ import { listFiles, getFile } from "../api";
 import { buildPrompt, parseTextResponse, stripCodeFence } from "../llmPrompt";
 import { registerVerilogLanguage, VERILOG_LANGUAGE_ID, EDITOR_THEME_ID } from "../verilogLanguage";
 
-const VALID_NAME = /^[A-Za-z0-9_-]+\.v$/;
+const VALID_NAME = /^[A-Za-z0-9_-]+\.(v|vh)$/;
 
 export default function LLMPanel({ activeName, currentProject, currentBranch, lastResult, onApply }) {
   const [requestText, setRequestText] = useState("");
@@ -203,7 +203,7 @@ export default function LLMPanel({ activeName, currentProject, currentBranch, la
 
       <label className="llm-upload-btn">
         파일 업로드 (여러 개 선택 가능)
-        <input type="file" multiple accept=".v,.txt" onChange={handleFileUpload} hidden />
+        <input type="file" multiple accept=".v,.vh,.txt" onChange={handleFileUpload} hidden />
       </label>
 
       <details className="llm-paste-details">
